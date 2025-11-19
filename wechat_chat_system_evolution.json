@@ -1,0 +1,407 @@
+{
+  "system_name": "微信聊天系统",
+  "original_requirement": "设计一个支持用户注册、好友管理、一对一聊天、群聊、消息实时推送和历史存储的聊天系统，需要支持高并发和高可用性",
+  "evolution_rounds": [
+    {
+      "round": 1,
+      "current_issue": "实现核心业务功能",
+      "architecture": {
+        "containers": [
+          {
+            "name": "Web应用服务器",
+            "tech_stack": "Python/FastAPI 或 Node.js/Express",
+            "responsibility": "处理HTTP请求，实现用户注册/登录、好友管理、消息发送/接收等核心业务逻辑",
+            "relations": "直接连接数据库，处理所有业务逻辑",
+            "solved_issue": "实现核心业务功能 - 支持用户注册、登录、好友管理、消息收发",
+            "limitations": "单机部署，无法水平扩展；所有请求直接访问数据库，性能瓶颈明显；无缓存机制，重复查询数据库"
+          },
+          {
+            "name": "关系型数据库",
+            "tech_stack": "MySQL 8.0",
+            "responsibility": "存储用户信息、好友关系、聊天消息、群组信息等所有数据",
+            "relations": "被Web应用服务器直接访问",
+            "solved_issue": "实现核心业务功能 - 数据持久化存储",
+            "limitations": "单机数据库，存在单点故障风险；高并发下会成为性能瓶颈；读写都在同一实例，无法优化"
+          }
+        ]
+      },
+      "issue_backlog": [
+        "解决数据库性能瓶颈 - 高并发下数据库查询成为瓶颈",
+        "解决Web服务器单点故障 - 单机部署无法保证高可用",
+        "解决实时消息推送问题 - 当前架构无法支持WebSocket实时推送"
+      ]
+    },
+    {
+      "round": 2,
+      "current_issue": "解决数据库性能瓶颈 - 高并发下数据库查询成为瓶颈",
+      "architecture": {
+        "containers": [
+          {
+            "name": "Web应用服务器",
+            "tech_stack": "Python/FastAPI 或 Node.js/Express",
+            "responsibility": "处理HTTP请求，实现用户注册/登录、好友管理、消息发送/接收等核心业务逻辑",
+            "relations": "连接Redis缓存和MySQL数据库，优先查询缓存",
+            "solved_issue": "实现核心业务功能 - 支持用户注册、登录、好友管理、消息收发",
+            "limitations": "单机部署，无法水平扩展"
+          },
+          {
+            "name": "Redis缓存",
+            "tech_stack": "Redis 7.0",
+            "responsibility": "缓存热点数据（用户信息、好友列表、最近消息），减少数据库查询压力",
+            "relations": "被Web应用服务器访问，作为MySQL的前置缓存",
+            "solved_issue": "解决数据库性能瓶颈 - 通过缓存减少数据库查询",
+            "limitations": "单机Redis，存在单点故障风险；缓存穿透/击穿/雪崩风险"
+          },
+          {
+            "name": "MySQL主库",
+            "tech_stack": "MySQL 8.0",
+            "responsibility": "处理所有写操作和部分读操作，存储所有持久化数据",
+            "relations": "被Web应用服务器访问，与Redis配合使用",
+            "solved_issue": "实现核心业务功能 - 数据持久化存储",
+            "limitations": "单机主库，存在单点故障风险；写操作仍可能成为瓶颈"
+          },
+          {
+            "name": "MySQL从库",
+            "tech_stack": "MySQL 8.0",
+            "responsibility": "从主库同步数据，处理读操作，分担主库压力",
+            "relations": "从主库同步数据，被Web应用服务器读取",
+            "solved_issue": "解决数据库性能瓶颈 - 通过读写分离提升读性能",
+            "limitations": "主从同步延迟可能导致数据不一致；从库故障影响读性能"
+          }
+        ]
+      },
+      "issue_backlog": [
+        "解决Web服务器单点故障 - 单机部署无法保证高可用",
+        "解决Redis单点故障 - 缓存服务需要高可用",
+        "解决实时消息推送问题 - 当前架构无法支持WebSocket实时推送",
+        "解决数据库主库单点故障 - 主库故障会导致服务不可用"
+      ]
+    },
+    {
+      "round": 3,
+      "current_issue": "解决Web服务器单点故障 - 单机部署无法保证高可用",
+      "architecture": {
+        "containers": [
+          {
+            "name": "负载均衡器",
+            "tech_stack": "Nginx 或 HAProxy",
+            "responsibility": "分发HTTP请求到多个Web应用服务器实例，实现负载均衡和故障转移",
+            "relations": "接收客户端请求，转发到Web应用服务器集群",
+            "solved_issue": "解决Web服务器单点故障 - 通过多实例部署实现高可用",
+            "limitations": "负载均衡器本身可能成为单点，需要主备部署"
+          },
+          {
+            "name": "Web应用服务器集群",
+            "tech_stack": "Python/FastAPI 或 Node.js/Express (多实例)",
+            "responsibility": "处理HTTP请求，实现用户注册/登录、好友管理、消息发送/接收等核心业务逻辑",
+            "relations": "被负载均衡器分发请求，连接Redis和MySQL",
+            "solved_issue": "实现核心业务功能 - 支持用户注册、登录、好友管理、消息收发；解决单点故障",
+            "limitations": "无状态服务，但需要共享会话信息（可通过Redis解决）"
+          },
+          {
+            "name": "Redis Sentinel集群",
+            "tech_stack": "Redis 7.0 + Sentinel",
+            "responsibility": "缓存热点数据，通过Sentinel实现主从切换和高可用",
+            "relations": "被Web应用服务器访问，作为MySQL的前置缓存",
+            "solved_issue": "解决数据库性能瓶颈 - 通过缓存减少数据库查询；解决Redis单点故障",
+            "limitations": "主从切换时可能有短暂的数据丢失"
+          },
+          {
+            "name": "MySQL主从集群",
+            "tech_stack": "MySQL 8.0 (一主多从)",
+            "responsibility": "主库处理写操作，从库处理读操作，通过主从复制保证数据一致性",
+            "relations": "主库被Web应用服务器写入，从库被读取，主从之间数据同步",
+            "solved_issue": "实现核心业务功能 - 数据持久化存储；解决数据库性能瓶颈；解决主库单点故障（通过主从切换）",
+            "limitations": "主从切换需要人工或自动故障转移机制；主从延迟可能导致读不一致"
+          }
+        ]
+      },
+      "issue_backlog": [
+        "解决实时消息推送问题 - 当前架构无法支持WebSocket实时推送",
+        "解决负载均衡器单点故障 - 需要主备或集群部署",
+        "解决消息发送性能瓶颈 - 高并发下消息写入数据库成为瓶颈",
+        "解决会话状态共享问题 - 多实例需要共享用户会话"
+      ]
+    },
+    {
+      "round": 4,
+      "current_issue": "解决实时消息推送问题 - 当前架构无法支持WebSocket实时推送",
+      "architecture": {
+        "containers": [
+          {
+            "name": "负载均衡器",
+            "tech_stack": "Nginx 或 HAProxy (支持WebSocket)",
+            "responsibility": "分发HTTP请求和WebSocket连接到后端服务",
+            "relations": "接收客户端请求，转发到Web应用服务器和WebSocket服务器",
+            "solved_issue": "解决Web服务器单点故障 - 通过多实例部署实现高可用",
+            "limitations": "负载均衡器本身可能成为单点，需要主备部署"
+          },
+          {
+            "name": "Web应用服务器集群",
+            "tech_stack": "Python/FastAPI 或 Node.js/Express (多实例)",
+            "responsibility": "处理HTTP请求，实现用户注册/登录、好友管理、消息发送等业务逻辑",
+            "relations": "被负载均衡器分发请求，发送消息到消息队列，连接Redis和MySQL",
+            "solved_issue": "实现核心业务功能 - 支持用户注册、登录、好友管理、消息发送",
+            "limitations": "无状态服务，需要共享会话信息"
+          },
+          {
+            "name": "WebSocket服务器集群",
+            "tech_stack": "Node.js/Socket.io 或 Go/gorilla/websocket (多实例)",
+            "responsibility": "维护WebSocket长连接，实时推送消息给在线用户",
+            "relations": "从消息队列消费消息，通过Redis Pub/Sub进行跨实例消息路由",
+            "solved_issue": "解决实时消息推送问题 - 支持WebSocket实时推送",
+            "limitations": "需要解决跨实例消息路由问题；连接状态管理复杂"
+          },
+          {
+            "name": "消息队列",
+            "tech_stack": "RabbitMQ 或 Apache Kafka",
+            "responsibility": "异步处理消息发送，解耦Web服务器和WebSocket服务器，缓冲高并发消息",
+            "relations": "接收Web应用服务器发送的消息，被WebSocket服务器消费",
+            "solved_issue": "解决消息发送性能瓶颈 - 通过异步队列提升性能",
+            "limitations": "消息队列可能成为单点故障；需要保证消息不丢失"
+          },
+          {
+            "name": "Redis Sentinel集群",
+            "tech_stack": "Redis 7.0 + Sentinel",
+            "responsibility": "缓存热点数据，存储用户会话，提供Pub/Sub功能用于跨WebSocket实例消息路由",
+            "relations": "被Web应用服务器和WebSocket服务器访问",
+            "solved_issue": "解决数据库性能瓶颈 - 通过缓存减少数据库查询；解决Redis单点故障；解决会话状态共享问题",
+            "limitations": "主从切换时可能有短暂的数据丢失"
+          },
+          {
+            "name": "MySQL主从集群",
+            "tech_stack": "MySQL 8.0 (一主多从)",
+            "responsibility": "主库处理写操作，从库处理读操作，持久化存储所有数据",
+            "relations": "主库被Web应用服务器写入，从库被读取",
+            "solved_issue": "实现核心业务功能 - 数据持久化存储；解决数据库性能瓶颈",
+            "limitations": "主从延迟可能导致读不一致"
+          }
+        ]
+      },
+      "issue_backlog": [
+        "解决负载均衡器单点故障 - 需要主备或集群部署",
+        "解决消息队列单点故障 - 需要集群部署保证高可用",
+        "解决WebSocket跨实例路由性能问题 - Redis Pub/Sub可能成为瓶颈",
+        "解决数据库写性能瓶颈 - 高并发下主库写入仍可能成为瓶颈"
+      ]
+    },
+    {
+      "round": 5,
+      "current_issue": "解决消息队列单点故障 - 需要集群部署保证高可用",
+      "architecture": {
+        "containers": [
+          {
+            "name": "负载均衡器集群",
+            "tech_stack": "Nginx + Keepalived 或 AWS ALB",
+            "responsibility": "分发HTTP请求和WebSocket连接，通过主备或集群实现高可用",
+            "relations": "接收客户端请求，转发到后端服务",
+            "solved_issue": "解决负载均衡器单点故障 - 通过主备或集群实现高可用",
+            "limitations": "配置复杂，需要监控和自动故障转移"
+          },
+          {
+            "name": "API网关",
+            "tech_stack": "Kong 或 Zuul",
+            "responsibility": "统一入口，路由请求到不同微服务，实现认证、限流、监控等功能",
+            "relations": "接收负载均衡器请求，转发到各个微服务",
+            "solved_issue": "优化架构 - 统一入口，便于管理和扩展",
+            "limitations": "可能成为性能瓶颈，需要集群部署"
+          },
+          {
+            "name": "用户服务",
+            "tech_stack": "Python/FastAPI 或 Java/Spring Boot (微服务)",
+            "responsibility": "处理用户注册、登录、个人信息管理等业务",
+            "relations": "被API网关路由，连接Redis和MySQL",
+            "solved_issue": "实现核心业务功能 - 用户管理",
+            "limitations": "服务间调用增加延迟"
+          },
+          {
+            "name": "好友服务",
+            "tech_stack": "Python/FastAPI 或 Java/Spring Boot (微服务)",
+            "responsibility": "处理好友添加、删除、好友列表查询等业务",
+            "relations": "被API网关路由，连接Redis和MySQL",
+            "solved_issue": "实现核心业务功能 - 好友管理",
+            "limitations": "服务间调用增加延迟"
+          },
+          {
+            "name": "消息服务",
+            "tech_stack": "Python/FastAPI 或 Java/Spring Boot (微服务)",
+            "responsibility": "处理消息发送逻辑，将消息写入消息队列和数据库",
+            "relations": "被API网关路由，发送消息到消息队列，连接MySQL",
+            "solved_issue": "实现核心业务功能 - 消息发送",
+            "limitations": "服务间调用增加延迟"
+          },
+          {
+            "name": "WebSocket服务器集群",
+            "tech_stack": "Node.js/Socket.io 或 Go/gorilla/websocket (多实例)",
+            "responsibility": "维护WebSocket长连接，实时推送消息给在线用户",
+            "relations": "从消息队列消费消息，通过Redis Pub/Sub进行跨实例消息路由",
+            "solved_issue": "解决实时消息推送问题 - 支持WebSocket实时推送",
+            "limitations": "需要解决跨实例消息路由问题"
+          },
+          {
+            "name": "消息队列集群",
+            "tech_stack": "RabbitMQ Cluster 或 Kafka Cluster",
+            "responsibility": "异步处理消息发送，解耦服务，缓冲高并发消息，通过集群保证高可用",
+            "relations": "接收消息服务发送的消息，被WebSocket服务器消费",
+            "solved_issue": "解决消息发送性能瓶颈 - 通过异步队列提升性能；解决消息队列单点故障",
+            "limitations": "集群配置复杂，需要保证数据一致性"
+          },
+          {
+            "name": "Redis Sentinel集群",
+            "tech_stack": "Redis 7.0 + Sentinel",
+            "responsibility": "缓存热点数据，存储用户会话，提供Pub/Sub功能",
+            "relations": "被各个微服务和WebSocket服务器访问",
+            "solved_issue": "解决数据库性能瓶颈 - 通过缓存减少数据库查询；解决Redis单点故障",
+            "limitations": "主从切换时可能有短暂的数据丢失"
+          },
+          {
+            "name": "MySQL主从集群",
+            "tech_stack": "MySQL 8.0 (一主多从)",
+            "responsibility": "主库处理写操作，从库处理读操作，持久化存储所有数据",
+            "relations": "主库被各个微服务写入，从库被读取",
+            "solved_issue": "实现核心业务功能 - 数据持久化存储；解决数据库性能瓶颈",
+            "limitations": "主从延迟可能导致读不一致；高并发写入仍可能成为瓶颈"
+          }
+        ]
+      },
+      "issue_backlog": [
+        "解决WebSocket跨实例路由性能问题 - Redis Pub/Sub可能成为瓶颈",
+        "解决数据库写性能瓶颈 - 高并发下主库写入仍可能成为瓶颈，考虑分库分表",
+        "优化API网关性能 - 可能成为瓶颈，需要优化",
+        "添加监控和告警系统 - 需要实时了解系统状态"
+      ]
+    },
+    {
+      "round": 6,
+      "current_issue": "解决数据库写性能瓶颈 - 高并发下主库写入仍可能成为瓶颈，考虑分库分表",
+      "architecture": {
+        "containers": [
+          {
+            "name": "负载均衡器集群",
+            "tech_stack": "Nginx + Keepalived 或 AWS ALB",
+            "responsibility": "分发HTTP请求和WebSocket连接，通过主备或集群实现高可用",
+            "relations": "接收客户端请求，转发到API网关",
+            "solved_issue": "解决负载均衡器单点故障 - 通过主备或集群实现高可用",
+            "limitations": "配置复杂，需要监控和自动故障转移"
+          },
+          {
+            "name": "CDN",
+            "tech_stack": "阿里云CDN 或 CloudFlare",
+            "responsibility": "加速静态资源访问，减少服务器压力",
+            "relations": "缓存静态资源，被客户端直接访问",
+            "solved_issue": "优化性能 - 通过CDN加速静态资源访问",
+            "limitations": "需要配置缓存策略"
+          },
+          {
+            "name": "API网关集群",
+            "tech_stack": "Kong 或 Zuul (集群部署)",
+            "responsibility": "统一入口，路由请求到不同微服务，实现认证、限流、监控等功能",
+            "relations": "接收负载均衡器请求，转发到各个微服务",
+            "solved_issue": "优化架构 - 统一入口，便于管理和扩展；优化API网关性能",
+            "limitations": "需要保证集群间配置一致"
+          },
+          {
+            "name": "用户服务集群",
+            "tech_stack": "Python/FastAPI 或 Java/Spring Boot (微服务，多实例)",
+            "responsibility": "处理用户注册、登录、个人信息管理等业务",
+            "relations": "被API网关路由，连接Redis和MySQL",
+            "solved_issue": "实现核心业务功能 - 用户管理",
+            "limitations": "服务间调用增加延迟"
+          },
+          {
+            "name": "好友服务集群",
+            "tech_stack": "Python/FastAPI 或 Java/Spring Boot (微服务，多实例)",
+            "responsibility": "处理好友添加、删除、好友列表查询等业务",
+            "relations": "被API网关路由，连接Redis和MySQL",
+            "solved_issue": "实现核心业务功能 - 好友管理",
+            "limitations": "服务间调用增加延迟"
+          },
+          {
+            "name": "消息服务集群",
+            "tech_stack": "Python/FastAPI 或 Java/Spring Boot (微服务，多实例)",
+            "responsibility": "处理消息发送逻辑，将消息写入消息队列和数据库",
+            "relations": "被API网关路由，发送消息到消息队列，连接MySQL分库",
+            "solved_issue": "实现核心业务功能 - 消息发送",
+            "limitations": "服务间调用增加延迟"
+          },
+          {
+            "name": "WebSocket服务器集群",
+            "tech_stack": "Node.js/Socket.io 或 Go/gorilla/websocket (多实例)",
+            "responsibility": "维护WebSocket长连接，实时推送消息给在线用户，通过一致性哈希路由消息",
+            "relations": "从消息队列消费消息，通过Redis Cluster进行跨实例消息路由",
+            "solved_issue": "解决实时消息推送问题 - 支持WebSocket实时推送；解决WebSocket跨实例路由性能问题",
+            "limitations": "连接状态管理复杂"
+          },
+          {
+            "name": "消息队列集群",
+            "tech_stack": "RabbitMQ Cluster 或 Kafka Cluster",
+            "responsibility": "异步处理消息发送，解耦服务，缓冲高并发消息",
+            "relations": "接收消息服务发送的消息，被WebSocket服务器消费",
+            "solved_issue": "解决消息发送性能瓶颈 - 通过异步队列提升性能；解决消息队列单点故障",
+            "limitations": "集群配置复杂，需要保证数据一致性"
+          },
+          {
+            "name": "Redis Cluster",
+            "tech_stack": "Redis 7.0 Cluster",
+            "responsibility": "缓存热点数据，存储用户会话，提供Pub/Sub功能，通过集群提升性能和可用性",
+            "relations": "被各个微服务和WebSocket服务器访问",
+            "solved_issue": "解决数据库性能瓶颈 - 通过缓存减少数据库查询；解决Redis单点故障；解决WebSocket跨实例路由性能问题",
+            "limitations": "集群配置复杂，需要处理数据分片"
+          },
+          {
+            "name": "MySQL分库分表集群",
+            "tech_stack": "MySQL 8.0 + ShardingSphere 或 MyCat",
+            "responsibility": "通过分库分表解决写性能瓶颈，按用户ID分片，主库处理写操作，从库处理读操作",
+            "relations": "主库被各个微服务写入，从库被读取，通过中间件进行分片路由",
+            "solved_issue": "实现核心业务功能 - 数据持久化存储；解决数据库性能瓶颈；解决数据库写性能瓶颈",
+            "limitations": "跨分片查询复杂；数据迁移困难"
+          },
+          {
+            "name": "监控告警系统",
+            "tech_stack": "Prometheus + Grafana + AlertManager",
+            "responsibility": "监控系统各项指标（CPU、内存、QPS、延迟等），设置告警规则，及时发现问题",
+            "relations": "从各个服务收集指标，提供监控面板和告警通知",
+            "solved_issue": "添加监控和告警系统 - 实时了解系统状态，及时发现问题",
+            "limitations": "需要配置监控指标和告警规则"
+          },
+          {
+            "name": "日志聚合系统",
+            "tech_stack": "ELK Stack (Elasticsearch + Logstash + Kibana) 或 Loki",
+            "responsibility": "收集、存储、分析各服务的日志，便于问题排查和性能分析",
+            "relations": "从各个服务收集日志，提供日志查询和分析功能",
+            "solved_issue": "优化运维 - 通过日志聚合便于问题排查",
+            "limitations": "需要配置日志收集规则"
+          }
+        ]
+      },
+      "issue_backlog": [
+        "优化跨分片查询性能 - 分库分表后跨分片查询可能较慢",
+        "考虑引入消息中间件优化 - 如使用Kafka替代RabbitMQ以支持更高吞吐量",
+        "考虑引入服务网格 - 如Istio，优化微服务间通信",
+        "考虑引入分布式事务 - 保证跨服务数据一致性"
+      ]
+    }
+  ],
+  "summary": {
+    "total_rounds": 6,
+    "evolution_path": [
+      "Round 1: 单机架构，实现核心功能",
+      "Round 2: 引入缓存和读写分离，解决性能瓶颈",
+      "Round 3: 服务集群化，解决单点故障",
+      "Round 4: 引入WebSocket和消息队列，支持实时推送",
+      "Round 5: 微服务化，消息队列集群化",
+      "Round 6: 分库分表，引入监控和日志系统，完善运维体系"
+    ],
+    "key_technologies": [
+      "负载均衡: Nginx/HAProxy",
+      "应用层: FastAPI/Node.js/Spring Boot",
+      "缓存: Redis Cluster",
+      "数据库: MySQL 分库分表",
+      "消息队列: RabbitMQ/Kafka",
+      "实时通信: WebSocket",
+      "监控: Prometheus + Grafana",
+      "日志: ELK Stack"
+    ]
+  }
+}
+
