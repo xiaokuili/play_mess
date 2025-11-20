@@ -64,16 +64,46 @@
 
 ### 注意
 Current_Architecture 结构如下
+```
 {
-  "round": "Integer // 当前迭代轮次 (e.g., 1, 2, 3)",
-  "container": {
-    "tech_stack": "String // 具体选型 (e.g., 'Python/FastAPI', 'PostgreSQL')",
-    "responsibility": "String // 该组件的核心职责",
-    "relations": "String // 模块之间的关系",
-    "solved_issue": "String // 本轮解决的 Backlog 问题 ",
-    "limitations": "String // 故障问题，比如单点故障风险",
+  "round_id": "Integer",       // 当前轮次，e.g., 1
+  "round_title": "String",     // 本轮标题，用于时间轴显示，e.g., "引入缓存层"
+  "decision_rationale": "String", // 本轮决策理由，e.g., "为了缓解数据库读压力..."
+  
+  "architecture": {
+    // 节点列表：用于生成图中的方块/圆/图标
+    "nodes": [
+      {
+        "id": "String",          // 唯一标识，e.g., "api_server"
+        "label": "String",       // 组件名称，e.g., "Web API Cluster"
+        "tech_stack": "String",  // 技术选型，e.g., "Python/FastAPI"
+        "type": "Enum",          // 组件类型，决定形状: "client" | "gateway" | "service" | "database" | "cache" | "queue" | "third_party"
+        "status": "Enum",        // 演进状态，决定颜色: "new" (绿) | "modified" (黄) | "stable" (灰)
+        "description": "String", // 组件职责描述
+        "alerts": [              // 绑定在该组件上的具体风险/局限性 (Audit 结果)
+          "String"               // e.g., "存在单点故障风险", "内存容量瓶颈"
+        ]
+      }
+    ],
+    
+    // 边列表：用于生成图中的连线
+    "edges": [
+      {
+        "source": "String",      // 对应 nodes 中的 id
+        "target": "String",      // 对应 nodes 中的 id
+        "label": "String",       // 连线上的文字，e.g., "Read/Write", "Pub/Sub"
+        "interaction": "Enum"    // 交互方式，决定线型: "sync" (实线) | "async" (虚线)
+      }
+    ]
+  },
+
+  // 演进追踪
+  "evolution_tracking": {
+    "solved_issues": ["String"], // 本轮解决的 Backlog 问题
+    "new_backlog": ["String"]    // 审计后发现的新问题 (输入给下一轮)
   }
 }
+```
 ## 最终输出
 
 按照用户的要求，每一轮的Current_Architecture 和 Issue_Backlog
