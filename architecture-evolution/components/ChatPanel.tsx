@@ -2,9 +2,11 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { ArchitectureData } from '@/lib/architecture-to-excalidraw';
+import { ExcalidrawFile, createExcalidrawFiles } from '@/lib/excalidraw-file-manager';
 
 interface ChatPanelProps {
   onArchitectureUpdate: (rounds: ArchitectureData[]) => void;
+  onExcalidrawFileUpdate: (files: ExcalidrawFile[]) => void;
   rounds: ArchitectureData[];
   currentRoundIndex: number;
   onRoundChange: (index: number) => void;
@@ -12,6 +14,7 @@ interface ChatPanelProps {
 
 export default function ChatPanel({
   onArchitectureUpdate,
+  onExcalidrawFileUpdate,
   rounds,
   currentRoundIndex,
   onRoundChange
@@ -61,6 +64,11 @@ export default function ChatPanel({
 
       if (newRounds.length > 0) {
         onArchitectureUpdate(newRounds);
+        
+        // 生成 Excalidraw 文件
+        const excalidrawFiles = createExcalidrawFiles(newRounds);
+        onExcalidrawFileUpdate(excalidrawFiles);
+        
         setMessages(prev => [...prev, {
           role: 'assistant',
           content: `已生成 ${newRounds.length} 轮架构演进方案。请查看右侧图表。`
