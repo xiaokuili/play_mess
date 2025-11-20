@@ -10,12 +10,15 @@ export default function Home() {
   const [currentArchitecture, setCurrentArchitecture] = useState<ArchitectureData | null>(null);
   const [rounds, setRounds] = useState<ArchitectureData[]>([]);
   const [currentRoundIndex, setCurrentRoundIndex] = useState<number>(-1);
+  const [shouldRenderExcalidraw, setShouldRenderExcalidraw] = useState<boolean>(false);
 
   const handleArchitectureUpdate = (newRounds: ArchitectureData[]) => {
     setRounds(newRounds);
     if (newRounds.length > 0) {
       setCurrentRoundIndex(0);
       setCurrentArchitecture(newRounds[0]);
+      // 当有架构数据时，触发 Excalidraw 渲染
+      setShouldRenderExcalidraw(true);
     }
   };
 
@@ -41,7 +44,7 @@ export default function Home() {
       
       {/* 右侧 Excalidraw 面板 */}
       <div className="flex-1 flex flex-col">
-        <Excalidraw />
+        <Excalidraw shouldLoad={shouldRenderExcalidraw} />
       </div>
     </div>
   );
