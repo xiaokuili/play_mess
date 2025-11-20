@@ -9,6 +9,10 @@
 
 // ==================== 类型定义 ====================
 
+/**
+ * 节点位置信息
+ * 用于布局计算和渲染定位
+ */
 export interface NodePosition {
   x: number;
   y: number;
@@ -18,37 +22,91 @@ export interface NodePosition {
   center_y: number;
 }
 
+/**
+ * 架构节点接口
+ * 表示架构图中的一个组件（如服务、数据库、缓存等）
+ */
 export interface ArchitectureNode {
+  /** 节点的唯一标识符 */
   id: string;
+  /** 节点的显示名称 */
   label: string;
+  /** 技术栈信息，如 "Python/FastAPI" */
   tech_stack?: string;
+  /** 节点类型，决定在 Excalidraw 中的形状和图标 */
   type: "client" | "gateway" | "service" | "database" | "cache" | "queue" | "third_party";
+  /** 节点状态，决定颜色：new（绿色）、modified（黄色）、stable（灰色） */
   status: "new" | "modified" | "stable";
+  /** 节点的描述信息 */
   description?: string;
+  /** 节点上的警告信息列表，用于显示风险或局限性 */
   alerts?: string[];
 }
 
+/**
+ * 架构边接口
+ * 表示架构图中两个节点之间的连接关系
+ */
 export interface ArchitectureEdge {
+  /** 源节点的 ID */
   source: string;
+  /** 目标节点的 ID */
   target: string;
+  /** 边的标签，显示在连接线上 */
   label?: string;
+  /** 交互方式：sync（同步，实线）或 async（异步，虚线） */
   interaction: "sync" | "async";
 }
 
+/**
+ * 架构数据的生命周期状态
+ * 用于追踪架构演进的不同阶段
+ */
+export interface ArchitectureLifecycle {
+  /** 创建时间戳 */
+  createdAt: number;
+  /** 最后更新时间戳 */
+  updatedAt: number;
+  /** 当前状态：draft（草稿）、active（活跃）、archived（已归档） */
+  status: 'draft' | 'active' | 'archived';
+  /** 版本号，用于版本控制 */
+  version: number;
+}
+
+/**
+ * 架构数据接口
+ * 表示一轮架构演进的完整信息，包含架构图数据和演进追踪
+ */
 export interface ArchitectureData {
+  /** 轮次 ID，从 1 开始递增 */
   round_id: number;
+  /** 本轮次标题，用于显示在时间轴上 */
   round_title: string;
+  /** 决策理由，解释为什么做出这些架构决策 */
   decision_rationale?: string;
+  /** 架构图数据，包含节点和边的定义 */
   architecture: {
     nodes: ArchitectureNode[];
     edges: ArchitectureEdge[];
   };
+  /** 演进追踪信息，记录解决的问题和新发现的问题 */
   evolution_tracking?: {
     solved_issues?: string[];
     new_backlog?: string[];
   };
+  /** 生命周期对象，用于管理架构数据的创建、更新和状态 */
+  lifecycle: ArchitectureLifecycle;
+  /** 当前轮次的 Excalidraw 输出数据（output.json）
+   * 这个字段存储了将架构数据转换为 Excalidraw 格式后的 JSON 数据
+   * 可以直接用于 Excalidraw 组件渲染
+   */
+  output?: ExcalidrawData;
 }
 
+/**
+ * Excalidraw 元素接口
+ * 表示 Excalidraw 画布中的一个元素（如矩形、文本、箭头等）
+ */
 export interface ExcalidrawElement {
   id: string;
   type: string;
@@ -59,6 +117,11 @@ export interface ExcalidrawElement {
   [key: string]: any;
 }
 
+/**
+ * Excalidraw 数据接口
+ * 这是 ArchitectureData.output 的类型，表示完整的 Excalidraw 画布数据
+ * 可以直接传递给 Excalidraw 组件进行渲染
+ */
 export interface ExcalidrawData {
   type: string;
   version: number;
@@ -831,8 +894,37 @@ export class ArchitectureToExcalidraw {
 
 // ==================== 便捷函数 ====================
 
+/**
+ * 将架构数据转换为 Excalidraw 格式
+ * @param architecture_data 架构数据对象
+ * @returns Excalidraw 格式的数据，可以直接用于渲染
+ */
 export function convert_architecture_to_excalidraw(architecture_data: ArchitectureData): ExcalidrawData {
   const converter = new ArchitectureToExcalidraw();
   return converter.convert(architecture_data);
+}
+
+/**
+ * 创建带有完整生命周期和输出的架构数据
+ * 这是一个辅助函数，用于创建新的架构数据时自动填充生命周期信息
+ * @param roundData 轮次数据（不包含 lifecycle 和 output）
+ * @returns 完整的 ArchitectureData，包含生命周期和 Excalidraw 输出
+ */
+export function createArchitectureData(roundData: Omit<ArchitectureData, 'lifecycle' | 'output'>): ArchitectureData {
+  const now = Date.now();
+  const architectureData: ArchitectureData = {
+    ...roundData,
+    lifecycle: {
+      createdAt: now,
+      updatedAt: now,
+      status: 'active',
+      version: roundData.round_id,
+    },
+  };
+  
+  // 自动生成 Excalidraw 输出数据
+  architectureData.output = convert_architecture_to_excalidraw(architectureData);
+  
+  return architectureData;
 }
 
