@@ -13,7 +13,7 @@ const ExcalidrawPrimitive = dynamic(async () => (await import('@excalidraw/excal
 const Excalidraw = () => {
     const { theme } = useColorScheme();
     return (
-        <div className="relative h-[calc(100svh-72px)] overflow-hidden">
+        <div className="relative h-full overflow-hidden">
             <ExcalidrawPrimitive
                 initialData={{
                     appState: {

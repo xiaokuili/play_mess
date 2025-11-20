@@ -26,23 +26,23 @@ export default function Home() {
     }
   };
 
-  // return (
-  //   <div className="flex h-screen w-screen overflow-hidden">
-  //     {/* 左侧聊天面板 */}
-  //     <div className="w-1/2 border-r border-gray-300 flex flex-col">
-  //       <ChatPanel 
-  //         onArchitectureUpdate={handleArchitectureUpdate}
-  //         rounds={rounds}
-  //         currentRoundIndex={currentRoundIndex}
-  //         onRoundChange={handleRoundChange}
-  //       />
-  //     </div>
 
-  //     {/* 右侧 Excalidraw 展示面板 */}
-  //     <div className="w-1/2 flex flex-col">
-      <Excalidraw />
-  //     </div>
-  //   </div>
-  // );
-  return <Excalidraw />;
+  return (
+    <div className="flex h-screen">
+      {/* 左侧聊天面板 */}
+      <div className="w-1/3 border-r border-gray-300 flex flex-col">
+        <ChatPanel
+          onArchitectureUpdate={handleArchitectureUpdate}
+          rounds={rounds}
+          currentRoundIndex={currentRoundIndex}
+          onRoundChange={handleRoundChange}
+        />
+      </div>
+      
+      {/* 右侧 Excalidraw 面板 */}
+      <div className="flex-1 flex flex-col">
+        <Excalidraw />
+      </div>
+    </div>
+  );
 }
