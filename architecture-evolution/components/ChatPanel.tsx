@@ -184,25 +184,13 @@ export default function ChatPanel({
         const firstRound = processedRounds[0];
         const backlog = firstRound.evolution_tracking?.new_backlog || finalBacklog;
         
-        // 记录第一轮解决的问题（如果有）
-        const firstRoundSolved = firstRound.evolution_tracking?.solved_issues || [];
-        if (firstRoundSolved.length > 0) {
-          setSolvedIssuesHistory(prev => {
-            const newSet = new Set(prev);
-            firstRoundSolved.forEach(issue => newSet.add(issue));
-            return newSet;
-          });
-        }
-        
-        // 保留所有issue，不再过滤已解决的
-        // 将已解决的issue标记为done，未解决的标记为open
-        const currentSolvedSet = new Set([...solvedIssuesHistory, ...firstRoundSolved]);
+        // 初始阶段，没有用户操作，所以没有已解决的问题
+        // 所有 issue 都是待处理状态
         const newIssues: Issue[] = backlog.map((title, index) => {
-          const isSolved = currentSolvedSet.has(title);
           return {
             id: Date.now() + index, // 使用时间戳确保唯一性
             title,
-            status: isSolved ? 'done' as const : 'open' as const,
+            status: 'open' as const,
             dependencies: []
           };
         });
@@ -317,30 +305,26 @@ export default function ChatPanel({
         onArchitectureUpdate(updatedRounds, newRoundIndex);
         
         // 更新 issues
-        // 1. 将当前 activeIssueId 标记为 done
-        // 2. 记录本轮解决的问题到历史记录
-        // 3. 添加新发现的 issue（过滤掉已解决的）
+        // 1. 将当前 activeIssueId 标记为 done（基于用户操作）
+        // 2. 将当前解决的 issue 标题添加到已解决历史记录（基于用户操作，不依赖大模型返回）
+        // 3. 添加新发现的 issue
         const newRound = newRounds[0];
-        const solvedIssues = newRound.evolution_tracking?.solved_issues || [];
         const newBacklog = newRound.evolution_tracking?.new_backlog || finalBacklog;
         
-        // 更新已解决问题的历史记录，并在回调中使用最新的历史记录
+        // 基于用户操作维护已解决问题历史：用户点击"构建"并成功生成架构，说明该 issue 已解决
         setSolvedIssuesHistory(prev => {
           const newSet = new Set(prev);
-          solvedIssues.forEach(issue => newSet.add(issue));
+          // 将当前用户操作的 issue 标题添加到已解决历史
+          newSet.add(selectedIssueTitle);
           
           // 在同一个更新中处理 issues，使用最新的历史记录
           setIssues(prevIssues => {
-            // 标记当前 issue 为 done
+            // 标记当前 issue 为 done（基于用户操作）
             const updated = prevIssues.map(i => 
               i.id === activeIssueId ? { ...i, status: 'done' as const } : i
             );
             
-            // 保留所有issue，不再过滤已解决的
-            // 将已解决的issue标记为done，未解决的标记为open
-            const allSolvedSet = new Set([...prev, ...solvedIssues]);
-            
-            // 处理新发现的 issue（保留所有，包括已解决的）
+            // 处理新发现的 issue
             const newIssues: Issue[] = newBacklog.map((title, index) => {
               // 检查是否已存在相同标题的 issue（在当前的 issues 列表中）
               const existing = updated.find(i => i.title === title);
@@ -349,8 +333,8 @@ export default function ChatPanel({
                 return existing;
               }
               
-              // 新issue，根据是否已解决设置状态
-              const isSolved = allSolvedSet.has(title);
+              // 新issue，根据是否已在已解决历史中设置状态
+              const isSolved = newSet.has(title);
               return {
                 id: Date.now() + index,
                 title,
@@ -397,15 +381,20 @@ export default function ChatPanel({
 
   /**
    * 添加新 Issue 到 Backlog
+   * 如果该 issue 已在已解决历史记录中，自动标记为 done
    */
   const handleAddIssue = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newIssueText.trim()) return;
     
+    const issueTitle = newIssueText.trim();
+    // 检查是否已在已解决历史记录中
+    const isSolved = solvedIssuesHistory.has(issueTitle);
+    
     const newIssue: Issue = {
       id: Date.now(),
-      title: newIssueText.trim(),
-      status: 'open',
+      title: issueTitle,
+      status: isSolved ? 'done' : 'open',
       dependencies: newIssueDep ? [parseInt(newIssueDep)] : []
     };
     
@@ -433,6 +422,7 @@ export default function ChatPanel({
 
   /**
    * 切换 Issue 状态（done <-> open）
+   * 同时更新已解决历史记录（基于用户操作）
    */
   const toggleIssueStatus = (issueId: number) => {
     const issue = issues.find(i => i.id === issueId);
@@ -444,13 +434,28 @@ export default function ChatPanel({
       return;
     }
     
+    const isCurrentlyDone = issue.status === 'done';
+    const newStatus: 'done' | 'open' = isCurrentlyDone ? 'open' : 'done';
+    
+    // 基于用户操作更新已解决历史记录
+    setSolvedIssuesHistory(prev => {
+      const newSet = new Set(prev);
+      if (newStatus === 'done') {
+        // 用户标记为 done，添加到历史记录
+        newSet.add(issue.title);
+      } else {
+        // 用户标记为 open，从历史记录中移除
+        newSet.delete(issue.title);
+      }
+      return newSet;
+    });
+    
     setIssues(prev => prev.map(i => {
       if (i.id === issueId) {
         if (activeIssueId === issueId && i.status === 'open') {
           setActiveIssueId(null);
           return { ...i, status: 'done' as const };
         }
-        const newStatus: 'done' | 'open' = i.status === 'open' ? 'done' : 'open';
         return { ...i, status: newStatus };
       }
       return i;
