@@ -56,12 +56,20 @@ export default function Home() {
    * 当 ChatPanel 生成新的架构数据时，会调用这个函数
    * 
    * @param newRounds 新的架构演进轮次数组
+   * @param autoSelectIndex 自动选中的索引（如果提供，则选中该索引；否则如果是初始生成，选中第一个）
    */
-  const handleArchitectureUpdate = (newRounds: ArchitectureData[]) => {
+  const handleArchitectureUpdate = (newRounds: ArchitectureData[], autoSelectIndex?: number) => {
     setRounds(newRounds);
-    // 如果有新数据，自动选中第一个
+    // 如果有新数据，根据参数决定选中哪个索引
     if (newRounds.length > 0) {
-      setCurrentRoundIndex(0);
+      if (autoSelectIndex !== undefined) {
+        // 如果指定了索引，使用指定的索引（用于演进时跳转到新轮次）
+        setCurrentRoundIndex(autoSelectIndex);
+      } else if (currentRoundIndex === -1 || rounds.length === 0) {
+        // 如果是初始生成（当前没有轮次），选中第一个
+        setCurrentRoundIndex(0);
+      }
+      // 否则保持当前选中的索引（不自动切换）
     }
   };
 

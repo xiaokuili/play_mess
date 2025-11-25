@@ -8,6 +8,7 @@
  * 2. 基于当前要解决的 issue 和之前的版本，生成新版本的 ArchitectureData（包含 output.json）
  * 3. 显示 Issue Backlog，允许用户选择要解决的问题
  * 4. 显示架构演进的轮次历史
+ * 5. 管理任务依赖关系和状态
  * 
  * 工作流程：
  * - 初始阶段：用户输入需求，生成初始架构（多轮）
@@ -16,13 +17,24 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { ArchitectureData, createArchitectureData } from '@/lib/architecture-to-excalidraw';
+import { Link, Lock, MousePointer2, Trash2, CheckCircle, Plus, ArrowDown } from 'lucide-react';
+
+/**
+ * Issue 接口：包含依赖关系和状态
+ */
+interface Issue {
+  id: number;
+  title: string;
+  status: 'open' | 'done' | 'in_progress';
+  dependencies: number[]; // 依赖的其他 issue 的 id
+}
 
 /**
  * ChatPanel 组件的 Props
  */
 interface ChatPanelProps {
-  /** 当架构数据更新时的回调函数，传入完整的 rounds 数组 */
-  onArchitectureUpdate: (rounds: ArchitectureData[]) => void;
+  /** 当架构数据更新时的回调函数，传入完整的 rounds 数组和可选的自动选中索引 */
+  onArchitectureUpdate: (rounds: ArchitectureData[], autoSelectIndex?: number) => void;
   /** 当前的架构演进轮次数组 */
   rounds: ArchitectureData[];
   /** 当前选中的轮次索引 */
@@ -45,10 +57,14 @@ export default function ChatPanel({
   const [loading, setLoading] = useState(false);
   /** 消息历史记录（仅在初始阶段显示） */
   const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
-  /** Issue Backlog：待解决的问题列表 */
-  const [issueBacklog, setIssueBacklog] = useState<string[]>([]);
+  /** Issue Backlog：待解决的问题列表（带依赖关系和状态） */
+  const [issues, setIssues] = useState<Issue[]>([]);
   /** 添加新 Issue 的输入框值 */
-  const [newIssueInput, setNewIssueInput] = useState('');
+  const [newIssueText, setNewIssueText] = useState('');
+  /** 新 Issue 的依赖选择 */
+  const [newIssueDep, setNewIssueDep] = useState<string>('');
+  /** 当前正在构建的 Issue ID */
+  const [activeIssueId, setActiveIssueId] = useState<number | null>(null);
   /** 原始需求（用于后续的演进请求） */
   const [originalRequirement, setOriginalRequirement] = useState<string>('');
   /** 消息列表的底部引用，用于自动滚动 */
@@ -84,6 +100,24 @@ export default function ChatPanel({
     });
   };
 
+  /**
+   * 检查 Issue 是否被阻塞（依赖未完成）
+   * 
+   * @param issue 要检查的 Issue
+   * @returns 是否被阻塞，以及阻塞它的 Issue 列表
+   */
+  const getIssueStatusInfo = (issue: Issue) => {
+    const blockers = issue.dependencies.filter(depId => {
+      const parent = issues.find(i => i.id === depId);
+      return parent && parent.status !== 'done';
+    });
+    
+    return {
+      isBlocked: blockers.length > 0,
+      blockers: blockers.map(id => issues.find(i => i.id === id)).filter(Boolean) as Issue[]
+    };
+  };
+
   // ==================== 事件处理函数 ====================
 
   /**
@@ -91,9 +125,9 @@ export default function ChatPanel({
    * 
    * 工作流程：
    * 1. 用户输入初始需求
-   * 2. 调用 API 生成初始架构（通常生成多轮，如 3 轮）
+   * 2. 调用 API 生成第一轮架构（只生成 1 轮）
    * 3. 处理返回的数据，确保包含 lifecycle 和 output
-   * 4. 更新 rounds 和 backlog
+   * 4. 更新 rounds 和 backlog（显示问题日志）
    */
   const handleInitialSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -106,7 +140,7 @@ export default function ChatPanel({
     setLoading(true);
 
     try {
-      // 调用架构演进 API
+      // 调用架构演进 API，只生成第一轮
       const response = await fetch('/api/architect', {
         method: 'POST',
         headers: {
@@ -115,13 +149,15 @@ export default function ChatPanel({
         body: JSON.stringify({
           userInput: userMessage,
           currentArchitecture: null, // 初始阶段，没有当前架构
-          issueBacklog: ['实现核心业务功能'], // 初始问题
-          maxRounds: 3 // 生成 3 轮初始架构
+          issueBacklog: [], // 初始问题
+          maxRounds: 1 // 只生成第一轮，显示问题日志
         })
       });
 
       if (!response.ok) {
-        throw new Error('Failed to get architecture evolution');
+        // 尝试获取详细的错误信息
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.message || 'Failed to get architecture evolution');
       }
 
       const data = await response.json();
@@ -135,14 +171,21 @@ export default function ChatPanel({
         // 更新架构数据
         onArchitectureUpdate(processedRounds);
         
-        // 更新 backlog（使用最后一轮的 new_backlog，如果没有则使用 final_backlog）
-        const lastRound = processedRounds[processedRounds.length - 1];
-        const backlog = lastRound.evolution_tracking?.new_backlog || finalBacklog;
-        setIssueBacklog(backlog);
+        // 更新 backlog（使用第一轮的 new_backlog，如果没有则使用 final_backlog）
+        // 将字符串数组转换为 Issue 对象数组
+        const firstRound = processedRounds[0];
+        const backlog = firstRound.evolution_tracking?.new_backlog || finalBacklog;
+        const newIssues: Issue[] = backlog.map((title, index) => ({
+          id: Date.now() + index, // 使用时间戳确保唯一性
+          title,
+          status: 'open' as const,
+          dependencies: []
+        }));
+        setIssues(newIssues);
         
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: `已生成 ${processedRounds.length} 轮架构演进方案。请查看右侧图表和下方的 Issue Backlog。`
+          content: `✅ 已生成第一轮架构演进方案！\n\n📋 请查看下方的 Issue Backlog，点击"构建"按钮开始解决任务。\n\n💡 提示：任务可以设置依赖关系，被阻塞的任务无法开始。`
         }]);
       } else {
         setMessages(prev => [...prev, {
@@ -162,36 +205,61 @@ export default function ChatPanel({
   };
 
   /**
+   * 开始解决 Issue（开始构建）
+   * 
+   * @param issueId 要解决的 Issue ID
+   */
+  const startSolving = (issueId: number) => {
+    const issue = issues.find(i => i.id === issueId);
+    if (!issue) return;
+    
+    const { isBlocked } = getIssueStatusInfo(issue);
+    if (isBlocked) {
+      alert("警告：此任务的前置依赖尚未完成，建议按顺序执行。");
+      return;
+    }
+    
+    setActiveIssueId(issueId);
+    // 更新状态为 in_progress
+    setIssues(prev => prev.map(i => 
+      i.id === issueId ? { ...i, status: 'in_progress' as const } : i
+    ));
+    
+    // 开始演进
+    handleIssueEvolve(issue.title);
+  };
+
+  /**
    * 处理基于 Issue 的架构演进
    * 
    * 这是 ChatPanel 的核心工作流程：
    * 1. 用户从 Backlog 中选择一个要解决的 issue
    * 2. 获取最后一个版本的 ArchitectureData（之前的版本）
    * 3. 调用 API，传入：原始需求、当前架构、要解决的 issue
-   * 4. API 返回新的 ArchitectureData（新版本）
+   * 4. API 返回新的 ArchitectureData（新版本，只生成 1 轮）
    * 5. 将新版本添加到 rounds 数组
    * 6. 更新 backlog（移除已解决的，添加新发现的）
    * 
-   * @param selectedIssue 用户选择要解决的 issue
+   * 注意：迭代是一轮一轮进行的，每次只生成一轮新版本
+   * 
+   * @param selectedIssueTitle 用户选择要解决的 issue 标题
    */
-  const handleIssueEvolve = async (selectedIssue: string) => {
+  const handleIssueEvolve = async (selectedIssueTitle: string) => {
     if (loading || rounds.length === 0) return;
 
     // 获取最后一个版本的架构数据（之前的版本）
     const previousVersion = rounds[rounds.length - 1];
     
-    // 从 backlog 中移除即将解决的 issue
-    const updatedBacklog = issueBacklog.filter(issue => issue !== selectedIssue);
-    
     setLoading(true);
     setMessages(prev => [...prev, {
       role: 'user',
-      content: `解决 Issue: ${selectedIssue}`
+      content: `解决 Issue: ${selectedIssueTitle}`
     }]);
 
     try {
       // 调用架构演进 API
       // 传入：原始需求、当前架构（最后一个版本）、要解决的 issue
+      // 只生成 1 轮新版本，然后引入新问题
       const response = await fetch('/api/architect', {
         method: 'POST',
         headers: {
@@ -200,13 +268,15 @@ export default function ChatPanel({
         body: JSON.stringify({
           userInput: originalRequirement, // 原始需求
           currentArchitecture: previousVersion, // 之前的版本
-          issueBacklog: [selectedIssue], // 当前要解决的 issue
-          maxRounds: 1 // 只生成 1 轮新版本
+          issueBacklog: [selectedIssueTitle], // 当前要解决的 issue
+          maxRounds: 1 // 只生成 1 轮新版本，迭代是一点点进行
         })
       });
 
       if (!response.ok) {
-        throw new Error('Failed to evolve architecture');
+        // 尝试获取详细的错误信息
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.message || 'Failed to evolve architecture');
       }
 
       const data = await response.json();
@@ -217,25 +287,54 @@ export default function ChatPanel({
         // 处理返回的数据，确保包含 lifecycle 和 output
         const newRounds = processArchitectureRounds(rawRounds);
         
-        // 将新版本添加到 rounds 数组
+        // 将新版本添加到 rounds 数组（只添加一轮）
         const updatedRounds = [...rounds, ...newRounds];
-        onArchitectureUpdate(updatedRounds);
+        const newRoundIndex = updatedRounds.length - 1;
         
-        // 更新 backlog
-        // 1. 移除已解决的 issue（已经在 updatedBacklog 中处理）
-        // 2. 添加新发现的 issue（从最后一轮的 new_backlog 获取）
-        const lastRound = newRounds[newRounds.length - 1];
-        const newBacklog = lastRound.evolution_tracking?.new_backlog || finalBacklog;
-        // 合并：移除已解决的 + 添加新发现的，并去重
-        const mergedBacklog = [...updatedBacklog, ...newBacklog].filter((v, i, a) => a.indexOf(v) === i);
-        setIssueBacklog(mergedBacklog);
+        // 更新架构数据，并自动跳转到新生成的轮次
+        onArchitectureUpdate(updatedRounds, newRoundIndex);
         
-        // 自动切换到新生成的轮次
-        onRoundChange(updatedRounds.length - 1);
+        // 更新 issues
+        // 1. 将当前 activeIssueId 标记为 done
+        // 2. 添加新发现的 issue
+        const newRound = newRounds[0];
+        const newBacklog = newRound.evolution_tracking?.new_backlog || finalBacklog;
+        
+        setIssues(prev => {
+          // 标记当前 issue 为 done
+          const updated = prev.map(i => 
+            i.id === activeIssueId ? { ...i, status: 'done' as const } : i
+          );
+          
+          // 添加新发现的 issue
+          const newIssues: Issue[] = newBacklog.map((title, index) => {
+            // 检查是否已存在相同标题的 issue
+            const existing = updated.find(i => i.title === title);
+            if (existing) return existing;
+            
+            return {
+              id: Date.now() + index,
+              title,
+              status: 'open' as const,
+              dependencies: []
+            };
+          });
+          
+          // 合并并去重（基于 title）
+          const merged = [...updated, ...newIssues];
+          const unique = merged.filter((issue, index, self) => 
+            index === self.findIndex(i => i.id === issue.id)
+          );
+          
+          return unique;
+        });
+        
+        // 清除 activeIssueId
+        setActiveIssueId(null);
         
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: `已解决 "${selectedIssue}"，生成新的架构演进。`
+          content: `✅ 已解决 "${selectedIssueTitle}"，生成第 ${newRound.round_id} 轮架构演进。已自动切换到最新版本，请查看 Issue Backlog 选择下一个要修复的问题。`
         }]);
       }
     } catch (error: any) {
@@ -244,6 +343,14 @@ export default function ChatPanel({
         role: 'assistant',
         content: `错误: ${error.message}`
       }]);
+      
+      // 如果出错，将状态改回 open
+      if (activeIssueId !== null) {
+        setIssues(prev => prev.map(i => 
+          i.id === activeIssueId ? { ...i, status: 'open' as const } : i
+        ));
+        setActiveIssueId(null);
+      }
     } finally {
       setLoading(false);
     }
@@ -254,17 +361,61 @@ export default function ChatPanel({
    */
   const handleAddIssue = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newIssueInput.trim()) return;
+    if (!newIssueText.trim()) return;
     
-    setIssueBacklog(prev => [...prev, newIssueInput.trim()]);
-    setNewIssueInput('');
+    const newIssue: Issue = {
+      id: Date.now(),
+      title: newIssueText.trim(),
+      status: 'open',
+      dependencies: newIssueDep ? [parseInt(newIssueDep)] : []
+    };
+    
+    setIssues(prev => [...prev, newIssue]);
+    setNewIssueText('');
+    setNewIssueDep('');
   };
 
   /**
    * 从 Backlog 中删除 Issue
    */
-  const handleDeleteIssue = (issue: string) => {
-    setIssueBacklog(prev => prev.filter(i => i !== issue));
+  const handleDeleteIssue = (issueId: number) => {
+    // 检查是否有其他 issue 依赖此 issue
+    const hasDependents = issues.some(i => i.dependencies.includes(issueId));
+    if (hasDependents) {
+      alert("无法删除：其他任务依赖于此任务。");
+      return;
+    }
+    
+    setIssues(prev => prev.filter(i => i.id !== issueId));
+    if (activeIssueId === issueId) {
+      setActiveIssueId(null);
+    }
+  };
+
+  /**
+   * 切换 Issue 状态（done <-> open）
+   */
+  const toggleIssueStatus = (issueId: number) => {
+    const issue = issues.find(i => i.id === issueId);
+    if (!issue) return;
+    
+    const { isBlocked } = getIssueStatusInfo(issue);
+    if (isBlocked && issue.status === 'open') {
+      alert("警告：此任务的前置依赖尚未完成，建议按顺序执行。");
+      return;
+    }
+    
+    setIssues(prev => prev.map(i => {
+      if (i.id === issueId) {
+        if (activeIssueId === issueId && i.status === 'open') {
+          setActiveIssueId(null);
+          return { ...i, status: 'done' as const };
+        }
+        const newStatus: 'done' | 'open' = i.status === 'open' ? 'done' : 'open';
+        return { ...i, status: newStatus };
+      }
+      return i;
+    }));
   };
 
   // ==================== 渲染逻辑 ====================
@@ -273,89 +424,178 @@ export default function ChatPanel({
 
   return (
     <div className="flex flex-col h-full">
-      {/* 标题栏 */}
-      <div className="p-4 border-b border-gray-300 bg-gray-50">
-        <h1 className="text-xl font-bold">演进式架构师</h1>
-        <p className="text-sm text-gray-600">
-          {hasArchitecture ? '基于 Issue 迭代演进架构' : '输入你的需求，AI 将帮你演进架构'}
-        </p>
-      </div>
-
-      {/* 轮次选择器：显示所有架构演进的轮次 */}
-      {rounds.length > 0 && (
-        <div className="p-4 border-b border-gray-300 bg-gray-50">
-          <div className="flex gap-2 overflow-x-auto">
-            {rounds.map((round, index) => (
-              <button
-                key={round.round_id}
-                onClick={() => onRoundChange(index)}
-                className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap ${
-                  currentRoundIndex === index
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                }`}
-              >
-                Round {round.round_id}: {round.round_title}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+    
 
       {/* Issue Backlog 面板：有架构后显示 */}
       {hasArchitecture && (
-        <div className="p-4 border-b border-gray-300 bg-yellow-50">
-          <h2 className="text-lg font-semibold mb-3">📋 Issue Backlog</h2>
-          <p className="text-xs text-gray-500 mb-3">
-            点击 Issue 可以基于当前架构生成新版本来解决它
-          </p>
-          
-          {issueBacklog.length === 0 ? (
-            <p className="text-sm text-gray-500 italic">暂无待解决问题</p>
-          ) : (
-            <div className="space-y-2 mb-3">
-              {issueBacklog.map((issue, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-center gap-2 p-2 bg-white rounded border border-gray-200 hover:border-blue-300"
-                >
-                  <button
-                    onClick={() => handleIssueEvolve(issue)}
-                    disabled={loading}
-                    className="flex-1 text-left text-sm text-gray-700 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <span className="font-medium">🔧 {issue}</span>
-                  </button>
-                  <button
-                    onClick={() => handleDeleteIssue(issue)}
-                    className="text-red-500 hover:text-red-700 text-xs px-2 py-1"
-                    title="删除"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* 标题和进度 */}
+          <div className="p-4 border-b border-gray-300 bg-gray-50">
+            <h1 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+              <Link className="text-blue-600" size={20}/> 
+              架构演进路径
+            </h1>
+            <p className="text-xs text-gray-500 mt-1">
+              定义依赖关系，向客户展示实施路径。
+            </p>
+            
+            {/* Progress Bar */}
+            {issues.length > 0 && (
+              <div className="mt-3 w-full bg-gray-200 rounded-full h-1.5">
+                <div 
+                  className="bg-blue-600 h-1.5 rounded-full transition-all duration-500" 
+                  style={{ 
+                    width: `${Math.round((issues.filter(i => i.status === 'done').length / issues.length) * 100)}%` 
+                  }}
+                ></div>
+              </div>
+            )}
+          </div>
 
-          {/* 添加新 Issue */}
-          <form onSubmit={handleAddIssue} className="flex gap-2">
-            <input
-              type="text"
-              value={newIssueInput}
-              onChange={(e) => setNewIssueInput(e.target.value)}
-              placeholder="添加新 Issue..."
-              className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-              disabled={loading}
-            />
-            <button
-              type="submit"
-              disabled={loading || !newIssueInput.trim()}
-              className="px-3 py-1.5 text-sm bg-green-500 text-white rounded hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
-            >
-              添加
-            </button>
-          </form>
+          {/* Issue 输入区域 */}
+          <div className="p-3 border-b border-gray-100 bg-white space-y-2">
+            <div className="text-xs font-semibold text-gray-500 mb-1">添加新任务</div>
+            
+            <form onSubmit={handleAddIssue} className="space-y-2">
+              <input 
+                type="text" 
+                placeholder="任务名称 (例如: 引入 Redis)" 
+                className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded text-sm focus:outline-none focus:border-blue-500"
+                value={newIssueText}
+                onChange={(e) => setNewIssueText(e.target.value)}
+                disabled={loading}
+              />
+              <div className="flex gap-2">
+                <select 
+                  className="flex-1 text-xs px-2 py-2 border border-gray-200 rounded bg-gray-50 text-gray-600 outline-none"
+                  value={newIssueDep}
+                  onChange={(e) => setNewIssueDep(e.target.value)}
+                  disabled={loading}
+                >
+                  <option value="">-- 选择前置依赖 (可选) --</option>
+                  {issues.filter(i => i.status !== 'done').map(i => (
+                    <option key={i.id} value={i.id}>依赖于: #{i.id} {i.title}</option>
+                  ))}
+                </select>
+                <button 
+                  type="submit"
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm flex items-center justify-center transition-colors"
+                  disabled={loading || !newIssueText.trim()}
+                >
+                  <Plus size={16} />
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* Issue 列表 */}
+          <div className="flex-1 overflow-y-auto p-3 space-y-3">
+            {issues.length === 0 ? (
+              <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                <p className="text-sm text-green-700 font-medium">🎉 恭喜！所有问题已解决</p>
+                <p className="text-xs text-green-600 mt-1">你可以添加新 Issue 继续演进架构</p>
+              </div>
+            ) : (
+              <>
+                {issues.map((issue) => {
+                  const { isBlocked, blockers } = getIssueStatusInfo(issue);
+                  const isDone = issue.status === 'done';
+                  const isActive = activeIssueId === issue.id;
+
+                  return (
+                    <div 
+                      key={issue.id} 
+                      className={`
+                        relative rounded-lg border p-3 transition-all duration-200
+                        ${isDone ? 'bg-gray-50 border-gray-200 opacity-60' : 'bg-white'}
+                        ${isActive ? 'border-blue-400 ring-1 ring-blue-200 shadow-md transform scale-[1.02] z-10' : 'border-gray-200 hover:border-blue-300'}
+                        ${isBlocked && !isDone ? 'bg-gray-50 border-gray-200' : ''}
+                      `}
+                    >
+                      {/* Dependency Connector Line */}
+                      {issue.dependencies.length > 0 && (
+                        <div className="absolute -top-3 left-4 w-0.5 h-3 bg-gray-300"></div>
+                      )}
+                      
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs font-mono text-gray-400">#{issue.id}</span>
+                            <span className={`font-medium text-sm ${isDone ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+                              {issue.title}
+                            </span>
+                          </div>
+                          
+                          {/* Blocker Info */}
+                          {isBlocked && !isDone && (
+                            <div className="flex items-start gap-1 mt-1 text-xs text-amber-600 bg-amber-50 p-1.5 rounded border border-amber-100">
+                              <Lock size={12} className="mt-0.5 shrink-0"/>
+                              <span>
+                                需先完成: {blockers.map(b => `#${b.id}`).join(', ')}
+                              </span>
+                            </div>
+                          )}
+                          
+                          {/* Dependency Info */}
+                          {!isBlocked && issue.dependencies.length > 0 && (
+                            <div className="text-[10px] text-gray-400 flex items-center gap-1 mt-1">
+                              <Link size={10}/> 依赖于 #{issue.dependencies[0]}
+                            </div>
+                          )}
+                        </div>
+                        
+                        <div className="flex flex-col items-end gap-2 pl-2">
+                          {/* Status Action */}
+                          {isDone ? (
+                            <button 
+                              onClick={() => toggleIssueStatus(issue.id)} 
+                              className="text-green-500 hover:text-green-600"
+                            >
+                              <CheckCircle size={18}/>
+                            </button>
+                          ) : (
+                            isActive ? (
+                              <div className="text-[10px] font-bold text-blue-600 bg-blue-100 px-2 py-1 rounded animate-pulse">
+                                进行中
+                              </div>
+                            ) : (
+                              <button 
+                                onClick={() => startSolving(issue.id)}
+                                disabled={isBlocked || loading}
+                                className={`
+                                  p-1.5 rounded transition-colors flex items-center gap-1 text-xs
+                                  ${isBlocked 
+                                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
+                                    : 'bg-blue-50 text-blue-600 hover:bg-blue-100 font-medium'}
+                                `}
+                              >
+                                {isBlocked ? <Lock size={14}/> : <><MousePointer2 size={14}/>构建</>}
+                              </button>
+                            )
+                          )}
+                          
+                          {!isDone && !isActive && (
+                            <button 
+                              onClick={() => handleDeleteIssue(issue.id)} 
+                              className="text-gray-300 hover:text-red-400"
+                              disabled={loading}
+                            >
+                              <Trash2 size={14}/>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                
+                <div className="text-center mt-8">
+                  <ArrowDown className="mx-auto text-gray-300 mb-2" size={20}/>
+                  <p className="text-xs text-gray-400">完成上一个任务解锁下一个</p>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
 
@@ -422,31 +662,18 @@ export default function ChatPanel({
         </form>
       )}
 
-      {/* 有架构后显示简要状态 */}
-      {hasArchitecture && (
+      {/* 有架构后显示加载状态 */}
+      {hasArchitecture && loading && (
         <div className="flex-1 overflow-y-auto p-4">
-          <div className="text-sm text-gray-600 space-y-2">
-            <p className="font-semibold">当前状态：</p>
-            {currentRoundIndex >= 0 && rounds[currentRoundIndex] && (
-              <div className="bg-gray-50 p-3 rounded">
-                <p className="font-medium">{rounds[currentRoundIndex].round_title}</p>
-                {rounds[currentRoundIndex].decision_rationale && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    {rounds[currentRoundIndex].decision_rationale}
-                  </p>
-                )}
+          <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-lg">
+            <div className="flex items-center gap-2 text-yellow-800">
+              <div className="flex gap-1">
+                <div className="w-2 h-2 bg-yellow-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                <div className="w-2 h-2 bg-yellow-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                <div className="w-2 h-2 bg-yellow-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
               </div>
-            )}
-            {loading && (
-              <div className="flex items-center gap-2 text-blue-600">
-                <div className="flex gap-1">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                </div>
-                <span>正在演进架构...</span>
-              </div>
-            )}
+              <span className="font-medium">正在生成下一轮架构演进...</span>
+            </div>
           </div>
         </div>
       )}

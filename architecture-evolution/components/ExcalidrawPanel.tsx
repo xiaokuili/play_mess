@@ -14,6 +14,7 @@
 
 import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
+import { ChevronDown, ChevronUp, Info } from 'lucide-react';
 
 import { Theme } from '@excalidraw/excalidraw/types/element/types';
 
@@ -43,6 +44,8 @@ const Excalidraw = ({ architectureData }: ExcalidrawProps) => {
     const { theme } = useColorScheme();
     /** Excalidraw 组件的初始数据 */
     const [initialData, setInitialData] = useState<any>(null);
+    /** 解决方案描述面板是否展开 */
+    const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(true);
 
     /**
      * 当 architectureData 变化时，更新 initialData
@@ -76,12 +79,49 @@ const Excalidraw = ({ architectureData }: ExcalidrawProps) => {
 
     // 渲染 Excalidraw 组件
     // initialData 来自 ArchitectureData.output
+    // 使用 key 强制在 architectureData 变化时重新渲染组件
+    // 这样当切换到不同轮次时，Excalidraw 会使用新的 initialData
+    const solutionDescription = architectureData.solution_description || architectureData.decision_rationale;
+    
     return (
-        <div className="relative h-full overflow-hidden">
-            <ExcalidrawPrimitive
-                initialData={initialData}
-                theme={theme as Theme}
-            />
+        <div className="relative h-full overflow-hidden flex flex-col">
+            {/* 解决方案描述面板 */}
+            {solutionDescription && (
+                <div className="border-b border-gray-200 bg-white shadow-sm">
+                    <button
+                        onClick={() => setIsDescriptionExpanded(!isDescriptionExpanded)}
+                        className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                    >
+                        <div className="flex items-center gap-2">
+                            <Info size={18} className="text-blue-600" />
+                            <span className="font-semibold text-gray-800">
+                                第 {architectureData.round_id} 轮：{architectureData.round_title}
+                            </span>
+                        </div>
+                        {isDescriptionExpanded ? (
+                            <ChevronUp size={20} className="text-gray-500" />
+                        ) : (
+                            <ChevronDown size={20} className="text-gray-500" />
+                        )}
+                    </button>
+                    {isDescriptionExpanded && (
+                        <div className="px-4 pb-4 pt-2 border-t border-gray-100">
+                            <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
+                                {solutionDescription}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+            
+            {/* Excalidraw 画布 */}
+            <div className="flex-1 relative overflow-hidden">
+                <ExcalidrawPrimitive
+                    key={architectureData.round_id}
+                    initialData={initialData}
+                    theme={theme as Theme}
+                />
+            </div>
         </div>
     );
 };
