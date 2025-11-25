@@ -46,18 +46,41 @@ const Excalidraw = ({ architectureData }: ExcalidrawProps) => {
     const [initialData, setInitialData] = useState<any>(null);
     /** 解决方案描述面板是否展开 */
     const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(true);
+    /** 当前数据的唯一标识，用于确保数据更新时重新渲染 */
+    const [dataKey, setDataKey] = useState<string>('');
 
     /**
-     * 当 architectureData 变化时，更新 initialData
+     * 当 architectureData 变化时，更新 initialData 和 dataKey
      * 
      * 数据来源：ArchitectureData.output（ExcalidrawData）
      */
     useEffect(() => {
+        if (!architectureData) {
+            setInitialData(null);
+            setDataKey('');
+            return;
+        }
+
         // 从 ArchitectureData 获取 Excalidraw 初始数据
         // 这个函数会从 architectureData.output 获取数据，如果没有则自动生成
         const data = getExcalidrawInitialDataFromArchitecture(architectureData);
+        
+        // 生成唯一 key，包含 round_id、updatedAt 和 elements 数量，确保数据变化时 key 也会变化
+        const elementsCount = data?.elements?.length || 0;
+        const key = `${architectureData.round_id}_${architectureData.lifecycle?.updatedAt || architectureData.lifecycle?.createdAt || Date.now()}_${elementsCount}`;
+        
         setInitialData(data);
-    }, [architectureData]);
+        setDataKey(key);
+        
+        // 切换轮次时重置描述面板展开状态
+        setIsDescriptionExpanded(true);
+    }, [
+        architectureData?.round_id,
+        architectureData?.lifecycle?.updatedAt,
+        architectureData?.lifecycle?.createdAt,
+        architectureData?.output,
+        architectureData
+    ]);
 
     // 如果还没有架构数据，显示提示信息
     if (!architectureData) {
@@ -116,11 +139,13 @@ const Excalidraw = ({ architectureData }: ExcalidrawProps) => {
             
             {/* Excalidraw 画布 */}
             <div className="flex-1 relative overflow-hidden">
-                <ExcalidrawPrimitive
-                    key={architectureData.round_id}
-                    initialData={initialData}
-                    theme={theme as Theme}
-                />
+                {initialData && (
+                    <ExcalidrawPrimitive
+                        key={dataKey || architectureData.round_id}
+                        initialData={initialData}
+                        theme={theme as Theme}
+                    />
+                )}
             </div>
         </div>
     );
