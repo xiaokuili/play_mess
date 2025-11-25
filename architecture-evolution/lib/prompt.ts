@@ -58,7 +58,6 @@ Current_Architecture 结构如下
   "round_id": "Integer",       // 当前轮次，e.g., 1
   "round_title": "String",     // 本轮标题，用于时间轴显示，e.g., "引入缓存层"
   "decision_rationale": "String", // 本轮决策理由，e.g., "为了缓解数据库读压力..."
-  "solution_description": "String", // 解决方案描述，详细阐述这一轮架构演进的具体实施方案和为什么这样做可以解决问题，包括：1) 具体实施了哪些改动 2) 这些改动如何解决当前问题 3) 技术选型的理由 4) 预期效果
   "architecture": {
     // 节点列表：用于生成图中的方块/圆/图标
     "nodes": [

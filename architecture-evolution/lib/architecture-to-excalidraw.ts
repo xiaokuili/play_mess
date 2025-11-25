@@ -84,8 +84,6 @@ export interface ArchitectureData {
   round_title: string;
   /** 决策理由，解释为什么做出这些架构决策 */
   decision_rationale?: string;
-  /** 解决方案描述，阐述这一轮架构演进的具体实施方案和为什么这样做可以解决问题 */
-  solution_description?: string;
   /** 架构图数据，包含节点和边的定义 */
   architecture: {
     nodes: ArchitectureNode[];

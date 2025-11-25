@@ -104,12 +104,12 @@ const Excalidraw = ({ architectureData }: ExcalidrawProps) => {
     // initialData 来自 ArchitectureData.output
     // 使用 key 强制在 architectureData 变化时重新渲染组件
     // 这样当切换到不同轮次时，Excalidraw 会使用新的 initialData
-    const solutionDescription = architectureData.solution_description || architectureData.decision_rationale;
+    const decisionRationale = architectureData.decision_rationale;
     
     return (
         <div className="relative h-full overflow-hidden flex flex-col">
-            {/* 解决方案描述面板 */}
-            {solutionDescription && (
+            {/* 决策理由面板 */}
+            {decisionRationale && (
                 <div className="border-b border-gray-200 bg-white shadow-sm">
                     <button
                         onClick={() => setIsDescriptionExpanded(!isDescriptionExpanded)}
@@ -130,7 +130,7 @@ const Excalidraw = ({ architectureData }: ExcalidrawProps) => {
                     {isDescriptionExpanded && (
                         <div className="px-4 pb-4 pt-2 border-t border-gray-100">
                             <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
-                                {solutionDescription}
+                                {decisionRationale}
                             </div>
                         </div>
                     )}

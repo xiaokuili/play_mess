@@ -50,17 +50,16 @@ ${instructionText}
   "rounds": [
     {
       "round_id": ${nextRoundId},
-      "round_title": "...",
-      "decision_rationale": "...",
-      "solution_description": "...", // 详细阐述这一轮架构演进的具体实施方案和为什么这样做可以解决问题
-      "architecture": { ... },
-      "evolution_tracking": {
-        "solved_issues": [...],
-        "new_backlog": [...]
+      "round_title": "...", // 本轮标题，用于时间轴显示，e.g., "引入缓存层"
+      "decision_rationale": "...", // 本轮决策理由，解释为什么做出这些架构决策
+      "architecture": { ... }, // 架构图数据，包含节点和边的定义
+      "evolution_tracking": { // 演进追踪信息，记录解决的问题和新发现的问题
+        "solved_issues": [...], // 本轮解决的 Backlog 问题
+        "new_backlog": [...] // 审计后发现的新问题 (输入给下一轮)
       }
     }
-  ],
-  "final_backlog": [...]
+  ], // 架构演进轮次数组（不包含 lifecycle 和 output）
+  "final_backlog": [...] // 最终问题清单，基于输入的final_backlog和每一轮的evolution_tracking.new_backlog，去重后返回
 }
 `;
 
@@ -156,13 +155,12 @@ function generateMockRounds(userInput: string, maxRounds: number, issueBacklog?:
     const roundId = currentRoundId + i;
     
     // 根据要解决的问题和当前轮次，生成相应的架构
-    let roundTitle, decisionRationale, solutionDescription, architecture, solvedIssues, newBacklog;
+    let roundTitle, decisionRationale, architecture, solvedIssues, newBacklog;
     
     if (isInitial || roundId === 1) {
       // 第一轮：实现核心业务功能
       roundTitle = "实现核心业务功能";
       decisionRationale = "实现基本的业务逻辑和数据库存储";
-      solutionDescription = "本轮实施方案：\n1. 创建 Web Client 前端应用，使用 React/TypeScript 技术栈\n2. 部署 API Server 后端服务，使用 Python/FastAPI 框架处理业务逻辑\n3. 配置 PostgreSQL 数据库用于数据持久化\n\n为什么这样做可以解决问题：\n- 采用前后端分离架构，便于独立开发和部署\n- 使用 FastAPI 框架可以快速构建高性能的 RESTful API\n- PostgreSQL 作为成熟的关系型数据库，提供 ACID 事务保证和数据一致性\n- 这个基础架构为后续演进提供了稳定的基础";
       architecture = {
         nodes: [
           {
@@ -214,7 +212,6 @@ function generateMockRounds(userInput: string, maxRounds: number, issueBacklog?:
       // 第二轮：引入缓存层
       roundTitle = "引入缓存层";
       decisionRationale = "为了缓解数据库读压力，引入 Redis 缓存层";
-      solutionDescription = "本轮实施方案：\n1. 在 API Server 和数据库之间引入 Redis 缓存层\n2. 实现缓存读取策略：先查缓存，缓存未命中再查数据库\n3. 配置缓存过期时间和更新策略\n\n为什么这样做可以解决问题：\n- Redis 作为内存数据库，读取速度远快于磁盘数据库，可以显著降低数据库读压力\n- 对于热点数据，缓存命中率通常可以达到 80% 以上，大幅减少数据库查询次数\n- 通过缓存层，可以将数据库 QPS 降低 70-90%，有效解决读压力问题\n- 选择 Redis 是因为它性能优异、功能丰富，支持多种数据结构，适合各种缓存场景";
       architecture = {
         nodes: [
           {
@@ -281,7 +278,6 @@ function generateMockRounds(userInput: string, maxRounds: number, issueBacklog?:
       // 第三轮：解决单点故障
       roundTitle = "解决单点故障";
       decisionRationale = "通过主从复制和负载均衡解决单点故障";
-      solutionDescription = "本轮实施方案：\n1. 引入 Nginx 负载均衡器，实现 API Server 的高可用\n2. 部署多个 API Server 实例（至少 2 个），通过负载均衡分发请求\n3. Redis 配置主从复制，Master 负责写操作，Slave 负责读操作\n4. 实现故障自动切换机制\n\n为什么这样做可以解决问题：\n- 负载均衡可以将流量分散到多个 API Server，单个服务器故障不会影响整体服务\n- Redis 主从复制提供了数据冗余，Master 故障时可以快速切换到 Slave\n- 通过多实例部署，系统具备了水平扩展能力，可以应对更高的 QPS\n- 这种架构设计确保了系统的高可用性，单点故障不会导致服务中断";
       architecture = {
         nodes: [
           {
@@ -405,7 +401,6 @@ function generateMockRounds(userInput: string, maxRounds: number, issueBacklog?:
       // 默认情况：基于当前架构进行演进
       roundTitle = `解决: ${selectedIssue}`;
       decisionRationale = `针对 "${selectedIssue}" 进行架构优化`;
-      solutionDescription = `本轮实施方案：\n针对 "${selectedIssue}" 问题，我们进行了相应的架构优化和调整。\n\n为什么这样做可以解决问题：\n- 通过分析问题的根本原因，我们采取了针对性的解决方案\n- 优化后的架构能够更好地满足业务需求，提升系统性能和稳定性`;
       architecture = currentArchitecture?.architecture || {
         nodes: [],
         edges: []
@@ -418,7 +413,6 @@ function generateMockRounds(userInput: string, maxRounds: number, issueBacklog?:
       round_id: roundId,
       round_title: roundTitle,
       decision_rationale: decisionRationale,
-      solution_description: solutionDescription,
       architecture: architecture,
       evolution_tracking: {
         solved_issues: solvedIssues,

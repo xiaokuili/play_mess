@@ -9,10 +9,16 @@
  * 3. 显示 Issue Backlog，允许用户选择要解决的问题
  * 4. 显示架构演进的轮次历史
  * 5. 管理任务依赖关系和状态
+ * 6. 维护已解决问题的历史记录，过滤大模型返回的 backlog 中已解决的问题
  * 
  * 工作流程：
  * - 初始阶段：用户输入需求，生成初始架构（多轮）
  * - 演进阶段：用户从 Backlog 中选择一个 issue，基于最后一个版本生成新版本
+ * 
+ * 已解决问题历史维护：
+ * - 大模型返回的 backlog 是累积的，可能包含已经解决的问题
+ * - 通过维护 solvedIssuesHistory 状态，记录所有已解决的问题
+ * - 在处理新 backlog 时，自动过滤掉已解决的问题，避免重复添加
  */
 
 import { useState, useRef, useEffect } from 'react';
@@ -25,7 +31,7 @@ import { Link, Lock, MousePointer2, Trash2, CheckCircle, Plus, ArrowDown } from 
 interface Issue {
   id: number;
   title: string;
-  status: 'open' | 'done' | 'in_progress';
+  status: 'open' | 'done';
   dependencies: number[]; // 依赖的其他 issue 的 id
 }
 
@@ -67,6 +73,8 @@ export default function ChatPanel({
   const [activeIssueId, setActiveIssueId] = useState<number | null>(null);
   /** 原始需求（用于后续的演进请求） */
   const [originalRequirement, setOriginalRequirement] = useState<string>('');
+  /** 已解决问题的历史记录（用于过滤大模型返回的 backlog） */
+  const [solvedIssuesHistory, setSolvedIssuesHistory] = useState<Set<string>>(new Set());
   /** 消息列表的底部引用，用于自动滚动 */
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -175,12 +183,29 @@ export default function ChatPanel({
         // 将字符串数组转换为 Issue 对象数组
         const firstRound = processedRounds[0];
         const backlog = firstRound.evolution_tracking?.new_backlog || finalBacklog;
-        const newIssues: Issue[] = backlog.map((title, index) => ({
-          id: Date.now() + index, // 使用时间戳确保唯一性
-          title,
-          status: 'open' as const,
-          dependencies: []
-        }));
+        
+        // 记录第一轮解决的问题（如果有）
+        const firstRoundSolved = firstRound.evolution_tracking?.solved_issues || [];
+        if (firstRoundSolved.length > 0) {
+          setSolvedIssuesHistory(prev => {
+            const newSet = new Set(prev);
+            firstRoundSolved.forEach(issue => newSet.add(issue));
+            return newSet;
+          });
+        }
+        
+        // 保留所有issue，不再过滤已解决的
+        // 将已解决的issue标记为done，未解决的标记为open
+        const currentSolvedSet = new Set([...solvedIssuesHistory, ...firstRoundSolved]);
+        const newIssues: Issue[] = backlog.map((title, index) => {
+          const isSolved = currentSolvedSet.has(title);
+          return {
+            id: Date.now() + index, // 使用时间戳确保唯一性
+            title,
+            status: isSolved ? 'done' as const : 'open' as const,
+            dependencies: []
+          };
+        });
         setIssues(newIssues);
         
         setMessages(prev => [...prev, {
@@ -220,10 +245,7 @@ export default function ChatPanel({
     }
     
     setActiveIssueId(issueId);
-    // 更新状态为 in_progress
-    setIssues(prev => prev.map(i => 
-      i.id === issueId ? { ...i, status: 'in_progress' as const } : i
-    ));
+    // 不修改issue状态，保持为open，直到生成完成后再更新为done
     
     // 开始演进
     handleIssueEvolve(issue.title);
@@ -296,37 +318,57 @@ export default function ChatPanel({
         
         // 更新 issues
         // 1. 将当前 activeIssueId 标记为 done
-        // 2. 添加新发现的 issue
+        // 2. 记录本轮解决的问题到历史记录
+        // 3. 添加新发现的 issue（过滤掉已解决的）
         const newRound = newRounds[0];
+        const solvedIssues = newRound.evolution_tracking?.solved_issues || [];
         const newBacklog = newRound.evolution_tracking?.new_backlog || finalBacklog;
         
-        setIssues(prev => {
-          // 标记当前 issue 为 done
-          const updated = prev.map(i => 
-            i.id === activeIssueId ? { ...i, status: 'done' as const } : i
-          );
+        // 更新已解决问题的历史记录，并在回调中使用最新的历史记录
+        setSolvedIssuesHistory(prev => {
+          const newSet = new Set(prev);
+          solvedIssues.forEach(issue => newSet.add(issue));
           
-          // 添加新发现的 issue
-          const newIssues: Issue[] = newBacklog.map((title, index) => {
-            // 检查是否已存在相同标题的 issue
-            const existing = updated.find(i => i.title === title);
-            if (existing) return existing;
+          // 在同一个更新中处理 issues，使用最新的历史记录
+          setIssues(prevIssues => {
+            // 标记当前 issue 为 done
+            const updated = prevIssues.map(i => 
+              i.id === activeIssueId ? { ...i, status: 'done' as const } : i
+            );
             
-            return {
-              id: Date.now() + index,
-              title,
-              status: 'open' as const,
-              dependencies: []
-            };
+            // 保留所有issue，不再过滤已解决的
+            // 将已解决的issue标记为done，未解决的标记为open
+            const allSolvedSet = new Set([...prev, ...solvedIssues]);
+            
+            // 处理新发现的 issue（保留所有，包括已解决的）
+            const newIssues: Issue[] = newBacklog.map((title, index) => {
+              // 检查是否已存在相同标题的 issue（在当前的 issues 列表中）
+              const existing = updated.find(i => i.title === title);
+              if (existing) {
+                // 如果已存在，保留原有issue（包括done状态的）
+                return existing;
+              }
+              
+              // 新issue，根据是否已解决设置状态
+              const isSolved = allSolvedSet.has(title);
+              return {
+                id: Date.now() + index,
+                title,
+                status: isSolved ? 'done' as const : 'open' as const,
+                dependencies: []
+              };
+            });
+            
+            // 合并并去重（基于 id，保留所有issue）
+            const merged = [...updated, ...newIssues];
+            const unique = merged.filter((issue, index, self) => 
+              index === self.findIndex(i => i.id === issue.id)
+            );
+            
+            return unique;
           });
           
-          // 合并并去重（基于 title）
-          const merged = [...updated, ...newIssues];
-          const unique = merged.filter((issue, index, self) => 
-            index === self.findIndex(i => i.id === issue.id)
-          );
-          
-          return unique;
+          return newSet;
         });
         
         // 清除 activeIssueId
@@ -344,11 +386,8 @@ export default function ChatPanel({
         content: `错误: ${error.message}`
       }]);
       
-      // 如果出错，将状态改回 open
+      // 如果出错，清除 activeIssueId（状态保持为 open，不需要修改）
       if (activeIssueId !== null) {
-        setIssues(prev => prev.map(i => 
-          i.id === activeIssueId ? { ...i, status: 'open' as const } : i
-        ));
         setActiveIssueId(null);
       }
     } finally {
@@ -488,8 +527,8 @@ export default function ChatPanel({
             </form>
           </div>
 
-          {/* Issue 列表 */}
-          <div className="flex-1 overflow-y-auto p-3 space-y-3">
+          {/* Issue 列表 - 按状态分组展示 */}
+          <div className="flex-1 overflow-y-auto p-3 space-y-4">
             {issues.length === 0 ? (
               <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
                 <p className="text-sm text-green-700 font-medium">🎉 恭喜！所有问题已解决</p>
@@ -497,67 +536,67 @@ export default function ChatPanel({
               </div>
             ) : (
               <>
-                {issues.map((issue) => {
-                  const { isBlocked, blockers } = getIssueStatusInfo(issue);
-                  const isDone = issue.status === 'done';
-                  const isActive = activeIssueId === issue.id;
+                {/* 按状态分组 */}
+                {(() => {
+                  const openIssues = issues.filter(i => i.status === 'open');
+                  const doneIssues = issues.filter(i => i.status === 'done');
+                  
+                  const renderIssue = (issue: Issue) => {
+                    const { isBlocked, blockers } = getIssueStatusInfo(issue);
+                    const isDone = issue.status === 'done';
+                    const isActive = activeIssueId === issue.id;
 
-                  return (
-                    <div 
-                      key={issue.id} 
-                      className={`
-                        relative rounded-lg border p-3 transition-all duration-200
-                        ${isDone ? 'bg-gray-50 border-gray-200 opacity-60' : 'bg-white'}
-                        ${isActive ? 'border-blue-400 ring-1 ring-blue-200 shadow-md transform scale-[1.02] z-10' : 'border-gray-200 hover:border-blue-300'}
-                        ${isBlocked && !isDone ? 'bg-gray-50 border-gray-200' : ''}
-                      `}
-                    >
-                      {/* Dependency Connector Line */}
-                      {issue.dependencies.length > 0 && (
-                        <div className="absolute -top-3 left-4 w-0.5 h-3 bg-gray-300"></div>
-                      )}
-                      
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-xs font-mono text-gray-400">#{issue.id}</span>
-                            <span className={`font-medium text-sm ${isDone ? 'line-through text-gray-400' : 'text-gray-800'}`}>
-                              {issue.title}
-                            </span>
-                          </div>
-                          
-                          {/* Blocker Info */}
-                          {isBlocked && !isDone && (
-                            <div className="flex items-start gap-1 mt-1 text-xs text-amber-600 bg-amber-50 p-1.5 rounded border border-amber-100">
-                              <Lock size={12} className="mt-0.5 shrink-0"/>
-                              <span>
-                                需先完成: {blockers.map(b => `#${b.id}`).join(', ')}
+                    return (
+                      <div 
+                        key={issue.id} 
+                        className={`
+                          relative rounded-lg border p-3 transition-all duration-200 mb-3
+                          ${isDone ? 'bg-gray-50 border-gray-200 opacity-60' : 'bg-white'}
+                          ${isActive ? 'border-blue-400 ring-1 ring-blue-200 shadow-md transform scale-[1.02] z-10' : 'border-gray-200 hover:border-blue-300'}
+                          ${isBlocked && !isDone ? 'bg-gray-50 border-gray-200' : ''}
+                        `}
+                      >
+                        {/* Dependency Connector Line */}
+                        {issue.dependencies.length > 0 && (
+                          <div className="absolute -top-3 left-4 w-0.5 h-3 bg-gray-300"></div>
+                        )}
+                        
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-xs font-mono text-gray-400">#{issue.id}</span>
+                              <span className={`font-medium text-sm ${isDone ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+                                {issue.title}
                               </span>
                             </div>
-                          )}
-                          
-                          {/* Dependency Info */}
-                          {!isBlocked && issue.dependencies.length > 0 && (
-                            <div className="text-[10px] text-gray-400 flex items-center gap-1 mt-1">
-                              <Link size={10}/> 依赖于 #{issue.dependencies[0]}
-                            </div>
-                          )}
-                        </div>
-                        
-                        <div className="flex flex-col items-end gap-2 pl-2">
-                          {/* Status Action */}
-                          {isDone ? (
-                            <button 
-                              onClick={() => toggleIssueStatus(issue.id)} 
-                              className="text-green-500 hover:text-green-600"
-                            >
-                              <CheckCircle size={18}/>
-                            </button>
-                          ) : (
-                            isActive ? (
-                              <div className="text-[10px] font-bold text-blue-600 bg-blue-100 px-2 py-1 rounded animate-pulse">
-                                进行中
+                            
+                            {/* Blocker Info */}
+                            {isBlocked && !isDone && (
+                              <div className="flex items-start gap-1 mt-1 text-xs text-amber-600 bg-amber-50 p-1.5 rounded border border-amber-100">
+                                <Lock size={12} className="mt-0.5 shrink-0"/>
+                                <span>
+                                  需先完成: {blockers.map(b => `#${b.id}`).join(', ')}
+                                </span>
                               </div>
+                            )}
+                            
+                            {/* Dependency Info */}
+                            {!isBlocked && issue.dependencies.length > 0 && (
+                              <div className="text-[10px] text-gray-400 flex items-center gap-1 mt-1">
+                                <Link size={10}/> 依赖于 #{issue.dependencies[0]}
+                              </div>
+                            )}
+                          </div>
+                          
+                          <div className="flex flex-col items-end gap-2 pl-2">
+                            {/* Status Action */}
+                            {isDone ? (
+                              <button 
+                                onClick={() => toggleIssueStatus(issue.id)} 
+                                className="text-green-500 hover:text-green-600"
+                              >
+                                <CheckCircle size={18}/>
+                              </button>
                             ) : (
                               <button 
                                 onClick={() => startSolving(issue.id)}
@@ -567,32 +606,54 @@ export default function ChatPanel({
                                   ${isBlocked 
                                     ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
                                     : 'bg-blue-50 text-blue-600 hover:bg-blue-100 font-medium'}
+                                  ${isActive ? 'opacity-50 cursor-wait' : ''}
                                 `}
                               >
                                 {isBlocked ? <Lock size={14}/> : <><MousePointer2 size={14}/>构建</>}
                               </button>
-                            )
-                          )}
-                          
-                          {!isDone && !isActive && (
-                            <button 
-                              onClick={() => handleDeleteIssue(issue.id)} 
-                              className="text-gray-300 hover:text-red-400"
-                              disabled={loading}
-                            >
-                              <Trash2 size={14}/>
-                            </button>
-                          )}
+                            )}
+                            
+                            {!isDone && !isActive && (
+                              <button 
+                                onClick={() => handleDeleteIssue(issue.id)} 
+                                className="text-gray-300 hover:text-red-400"
+                                disabled={loading}
+                              >
+                                <Trash2 size={14}/>
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    );
+                  };
+                  
+                  return (
+                    <>
+                      {/* 待处理 */}
+                      {openIssues.length > 0 && (
+                        <div>
+                          <div className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1">
+                            <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+                            待处理 ({openIssues.length})
+                          </div>
+                          {openIssues.map(renderIssue)}
+                        </div>
+                      )}
+                      
+                      {/* 处理过 */}
+                      {doneIssues.length > 0 && (
+                        <div>
+                          <div className="text-xs font-semibold text-green-600 mb-2 flex items-center gap-1">
+                            <CheckCircle size={12} className="text-green-600"/>
+                            处理过 ({doneIssues.length})
+                          </div>
+                          {doneIssues.map(renderIssue)}
+                        </div>
+                      )}
+                    </>
                   );
-                })}
-                
-                <div className="text-center mt-8">
-                  <ArrowDown className="mx-auto text-gray-300 mb-2" size={20}/>
-                  <p className="text-xs text-gray-400">完成上一个任务解锁下一个</p>
-                </div>
+                })()}
               </>
             )}
           </div>
