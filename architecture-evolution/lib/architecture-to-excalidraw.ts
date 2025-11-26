@@ -223,6 +223,7 @@ class LayoutEngine {
   private layer_spacing: number;
   private node_spacing: number;
   private margin: number;
+  private is_single_layer_flag: boolean;
 
   constructor(canvas_width: number = 2000, canvas_height: number = 1500) {
     this.canvas_width = canvas_width;
@@ -231,21 +232,29 @@ class LayoutEngine {
     this.layer_spacing = 250;
     this.node_spacing = 300;
     this.margin = 100;
+    this.is_single_layer_flag = false;
   }
 
   calculate_layout(nodes: ArchitectureNode[], edges: ArchitectureEdge[]): Map<string, NodePosition> {
-    // 构建图结构
+    // 1. 构建图结构（包括反向图，用于查找入边）
     const graph = this._build_graph(nodes, edges);
+    const reverse_graph = this._build_reverse_graph(nodes, edges);
 
-    // 计算层级（拓扑排序）
+    // 2. 计算层级（拓扑排序）
     const layers = this._calculate_layers(graph, nodes);
 
-    // 计算每个节点的位置
+    // 检测单层情况
+    this.is_single_layer_flag = layers.length === 1;
+
+    // 3. 优化每一层内节点的顺序，减少边交叉
+    const optimized_layers = this._optimize_layer_order(layers, graph, reverse_graph);
+
+    // 4. 计算每个节点的位置
     const positions = new Map<string, NodePosition>();
     const start_y = this.margin + 150;
 
-    for (let layer_idx = 0; layer_idx < layers.length; layer_idx++) {
-      const layer_nodes = layers[layer_idx];
+    for (let layer_idx = 0; layer_idx < optimized_layers.length; layer_idx++) {
+      const layer_nodes = optimized_layers[layer_idx];
       const layer_y = start_y + layer_idx * this.layer_spacing;
       const layer_width = layer_nodes.length * this.node_spacing;
       const start_x = (this.canvas_width - layer_width) / 2;
@@ -281,6 +290,17 @@ class LayoutEngine {
       graph.set(edge.source, targets);
     });
     return graph;
+  }
+
+  private _build_reverse_graph(nodes: ArchitectureNode[], edges: ArchitectureEdge[]): Map<string, string[]> {
+    const reverse_graph = new Map<string, string[]>();
+    nodes.forEach(node => reverse_graph.set(node.id, []));
+    edges.forEach(edge => {
+      const sources = reverse_graph.get(edge.target) || [];
+      sources.push(edge.source);
+      reverse_graph.set(edge.target, sources);
+    });
+    return reverse_graph;
   }
 
   private _calculate_layers(graph: Map<string, string[]>, nodes: ArchitectureNode[]): ArchitectureNode[][] {
@@ -328,7 +348,160 @@ class LayoutEngine {
     return layers;
   }
 
-  get_edge_points(source_id: string, target_id: string): [number[], number[]] {
+  /**
+   * 优化每一层内节点的顺序，减少边交叉
+   * - 多层情况：使用重心算法（barycenter）
+   * - 单层情况：使用边交叉计数优化
+   */
+  private _optimize_layer_order(
+    layers: ArchitectureNode[][],
+    graph: Map<string, string[]>,
+    reverse_graph: Map<string, string[]>
+  ): ArchitectureNode[][] {
+    // 检测单层情况
+    if (layers.length === 1) {
+      return [this._optimize_single_layer(layers[0], graph)];
+    }
+
+    // 多层情况：使用重心算法
+    const optimized_layers: ArchitectureNode[][] = [];
+    
+    for (let layer_idx = 0; layer_idx < layers.length; layer_idx++) {
+      const layer_nodes = layers[layer_idx];
+      
+      if (layer_idx === 0 || layer_nodes.length <= 1) {
+        // 第一层或只有一个节点，不需要优化
+        optimized_layers.push([...layer_nodes]);
+        continue;
+      }
+
+      // 计算每个节点在上一层的"重心"位置
+      const node_positions_in_prev_layer = new Map<string, number>();
+      optimized_layers[layer_idx - 1].forEach((node, idx) => {
+        node_positions_in_prev_layer.set(node.id, idx);
+      });
+
+      // 为每个节点计算重心值（连接的源节点在上一层的平均位置）
+      const node_barycenters = new Map<string, number>();
+      layer_nodes.forEach(node => {
+        const sources = reverse_graph.get(node.id) || [];
+        if (sources.length === 0) {
+          // 没有入边，使用一个很大的值，放在后面
+          node_barycenters.set(node.id, 10000);
+        } else {
+          // 计算所有源节点在上一层的平均位置
+          let sum = 0;
+          let count = 0;
+          sources.forEach(source_id => {
+            const pos = node_positions_in_prev_layer.get(source_id);
+            if (pos !== undefined) {
+              sum += pos;
+              count++;
+            }
+          });
+          node_barycenters.set(node.id, count > 0 ? sum / count : 10000);
+        }
+      });
+
+      // 按照重心值排序
+      const sorted_nodes = [...layer_nodes].sort((a, b) => {
+        const bary_a = node_barycenters.get(a.id) || 10000;
+        const bary_b = node_barycenters.get(b.id) || 10000;
+        return bary_a - bary_b;
+      });
+
+      optimized_layers.push(sorted_nodes);
+    }
+
+    return optimized_layers;
+  }
+
+  /**
+   * 单层情况的边交叉计数优化
+   * 使用贪心算法：尝试交换相邻节点，选择交叉数最少的排列
+   */
+  private _optimize_single_layer(
+    nodes: ArchitectureNode[],
+    graph: Map<string, string[]>
+  ): ArchitectureNode[] {
+    if (nodes.length <= 1) {
+      return [...nodes];
+    }
+
+    // 构建所有边的列表
+    const edges: Array<{ source: string; target: string }> = [];
+    graph.forEach((targets, source) => {
+      targets.forEach(target => {
+        edges.push({ source, target });
+      });
+    });
+
+    if (edges.length === 0) {
+      return [...nodes];
+    }
+
+    // 计算边交叉数的辅助函数
+    const count_crossings = (order: ArchitectureNode[]): number => {
+      const node_positions = new Map<string, number>();
+      order.forEach((node, idx) => {
+        node_positions.set(node.id, idx);
+      });
+
+      let crossings = 0;
+      for (let i = 0; i < edges.length; i++) {
+        for (let j = i + 1; j < edges.length; j++) {
+          const e1 = edges[i];
+          const e2 = edges[j];
+          const pos1_source = node_positions.get(e1.source) ?? -1;
+          const pos1_target = node_positions.get(e1.target) ?? -1;
+          const pos2_source = node_positions.get(e2.source) ?? -1;
+          const pos2_target = node_positions.get(e2.target) ?? -1;
+
+          // 检查两条边是否交叉
+          if (
+            pos1_source !== -1 && pos1_target !== -1 &&
+            pos2_source !== -1 && pos2_target !== -1
+          ) {
+            const source_order = pos1_source < pos2_source;
+            const target_order = pos1_target < pos2_target;
+            if (source_order !== target_order) {
+              crossings++;
+            }
+          }
+        }
+      }
+      return crossings;
+    };
+
+    // 贪心优化：尝试交换相邻节点
+    let best_order = [...nodes];
+    let best_crossings = count_crossings(best_order);
+    let improved = true;
+
+    while (improved) {
+      improved = false;
+      for (let i = 0; i < best_order.length - 1; i++) {
+        // 尝试交换 i 和 i+1
+        const new_order = [...best_order];
+        [new_order[i], new_order[i + 1]] = [new_order[i + 1], new_order[i]];
+        const new_crossings = count_crossings(new_order);
+
+        if (new_crossings < best_crossings) {
+          best_order = new_order;
+          best_crossings = new_crossings;
+          improved = true;
+        }
+      }
+    }
+
+    return best_order;
+  }
+
+  get_edge_points(
+    source_id: string,
+    target_id: string,
+    is_single_layer: boolean = false
+  ): number[][] {
     const source_pos = this.node_positions.get(source_id);
     const target_pos = this.node_positions.get(target_id);
 
@@ -336,11 +509,26 @@ class LayoutEngine {
       return [[0, 0], [0, 0]];
     }
 
-    // 计算连接点（从源节点底部到目标节点顶部）
+    // 单层情况：使用折线路由（向上弯曲，避免重叠）
+    if (is_single_layer) {
+      const mid_y = source_pos.y - 50; // 向上弯曲 50px
+      return [
+        [source_pos.center_x, source_pos.y + source_pos.height], // 起点：源节点底部
+        [source_pos.center_x, mid_y],                            // 中间点1：向上
+        [target_pos.center_x, mid_y],                            // 中间点2：水平移动
+        [target_pos.center_x, target_pos.y]                      // 终点：目标节点顶部
+      ];
+    }
+
+    // 多层情况：使用直线连接
     const start_point = [source_pos.center_x, source_pos.y + source_pos.height];
     const end_point = [target_pos.center_x, target_pos.y];
 
     return [start_point, end_point];
+  }
+
+  is_single_layer(): boolean {
+    return this.is_single_layer_flag;
   }
 }
 
@@ -373,6 +561,9 @@ export class ArchitectureToExcalidraw {
     const nodes = architecture_data.architecture.nodes;
     const edges = architecture_data.architecture.edges;
     const positions = this.layout_engine.calculate_layout(nodes, edges);
+    
+    // 检测是否只有一层
+    const is_single_layer = this.layout_engine.is_single_layer();
 
     // 3. 创建节点元素
     nodes.forEach(node => {
@@ -385,7 +576,7 @@ export class ArchitectureToExcalidraw {
 
     // 4. 创建边元素
     edges.forEach(edge => {
-      const edge_elements = this._create_edge(edge);
+      const edge_elements = this._create_edge(edge, is_single_layer);
       if (edge_elements.length > 0) {
         elements.push(...edge_elements);
       }
@@ -633,14 +824,14 @@ export class ArchitectureToExcalidraw {
     return elements;
   }
 
-  private _create_edge(edge: ArchitectureEdge): ExcalidrawElement[] {
+  private _create_edge(edge: ArchitectureEdge, is_single_layer: boolean = false): ExcalidrawElement[] {
     const source_id = edge.source;
     const target_id = edge.target;
     const interaction = edge.interaction || "sync";
 
-    // 获取连接点
-    const points = this.layout_engine.get_edge_points(source_id, target_id);
-    if (points[0][0] === 0 && points[0][1] === 0 && points[1][0] === 0 && points[1][1] === 0) {
+    // 获取连接点（可能是多个点，用于折线）
+    const points = this.layout_engine.get_edge_points(source_id, target_id, is_single_layer);
+    if (points.length === 0 || (points.length === 2 && points[0][0] === 0 && points[0][1] === 0 && points[1][0] === 0 && points[1][1] === 0)) {
       return [];
     }
 
@@ -652,19 +843,25 @@ export class ArchitectureToExcalidraw {
 
     // 计算箭头位置（相对于起点）
     const [start_x, start_y] = points[0];
-    const [end_x, end_y] = points[1];
-    const relative_points = [
-      [0, 0],
-      [end_x - start_x, end_y - start_y]
-    ];
+    const last_point = points[points.length - 1];
+    const relative_points = points.map((point, idx) => {
+      if (idx === 0) return [0, 0];
+      return [point[0] - start_x, point[1] - start_y];
+    });
+
+    // 计算边界框（用于 width 和 height）
+    const min_x = Math.min(...points.map(p => p[0]));
+    const max_x = Math.max(...points.map(p => p[0]));
+    const min_y = Math.min(...points.map(p => p[1]));
+    const max_y = Math.max(...points.map(p => p[1]));
 
     const edge_elem: ExcalidrawElement = {
       id: `edge_${source_id}_${target_id}`,
       type: "arrow",
       x: start_x,
       y: start_y,
-      width: Math.abs(end_x - start_x),
-      height: Math.abs(end_y - start_y),
+      width: Math.abs(max_x - min_x),
+      height: Math.abs(max_y - min_y),
       points: relative_points,
       strokeColor: "#1e1e1e",
       strokeWidth: stroke_config.width,
@@ -687,9 +884,11 @@ export class ArchitectureToExcalidraw {
 
     // 添加标签
     if (edge.label) {
-      // 计算标签位置（箭头中点）
-      const label_x = (start_x + end_x) / 2;
-      const label_y = (start_y + end_y) / 2;
+      // 计算标签位置（使用中间点，如果是折线则使用中间段的中心）
+      const mid_point = points[Math.floor(points.length / 2)];
+      const next_mid_point = points[Math.floor(points.length / 2) + 1] || points[points.length - 1];
+      const label_x = (mid_point[0] + next_mid_point[0]) / 2;
+      const label_y = (mid_point[1] + next_mid_point[1]) / 2;
 
       const label_elem: ExcalidrawElement = {
         id: `edge_label_${source_id}_${target_id}`,
