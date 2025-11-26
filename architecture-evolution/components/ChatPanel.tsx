@@ -506,6 +506,18 @@ export default function ChatPanel({
                 ></div>
               </div>
             )}
+            
+            {/* Loading 提示：显示在标题区域，不遮挡 issues */}
+            {loading && (
+              <div className="mt-3 flex items-center gap-2 text-sm text-blue-600 bg-blue-50 px-3 py-2 rounded border border-blue-200">
+                <div className="flex gap-1">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                </div>
+                <span className="font-medium">正在生成下一轮架构演进...</span>
+              </div>
+            )}
           </div>
 
           {/* Issue 输入区域 */}
@@ -736,12 +748,6 @@ export default function ChatPanel({
         </form>
       )}
 
-      {/* 有架构后显示加载状态 */}
-      {hasArchitecture && loading && (
-        <div className="flex-1 overflow-y-auto p-4">
-          <Loading message="正在生成下一轮架构演进..." color="yellow" inContainer={true} />
-        </div>
-      )}
     </div>
   );
 }
