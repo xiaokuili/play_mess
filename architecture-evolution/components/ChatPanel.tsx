@@ -24,6 +24,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { ArchitectureData, createArchitectureData } from '@/lib/architecture-to-excalidraw';
 import { Link, Lock, MousePointer2, Trash2, CheckCircle, Plus, ArrowDown } from 'lucide-react';
+import Loading from '@/components/Loading';
 
 /**
  * Issue 接口：包含依赖关系和状态
@@ -704,11 +705,7 @@ export default function ChatPanel({
           {loading && (
             <div className="flex justify-start">
               <div className="bg-gray-200 rounded-lg p-3">
-                <div className="flex gap-1">
-                  <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                  <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                  <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                </div>
+                <Loading message="" color="gray" />
               </div>
             </div>
           )}
@@ -742,16 +739,7 @@ export default function ChatPanel({
       {/* 有架构后显示加载状态 */}
       {hasArchitecture && loading && (
         <div className="flex-1 overflow-y-auto p-4">
-          <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-lg">
-            <div className="flex items-center gap-2 text-yellow-800">
-              <div className="flex gap-1">
-                <div className="w-2 h-2 bg-yellow-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                <div className="w-2 h-2 bg-yellow-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                <div className="w-2 h-2 bg-yellow-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-              </div>
-              <span className="font-medium">正在生成下一轮架构演进...</span>
-            </div>
-          </div>
+          <Loading message="正在生成下一轮架构演进..." color="yellow" inContainer={true} />
         </div>
       )}
     </div>

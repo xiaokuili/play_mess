@@ -15,6 +15,7 @@
 import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { ChevronDown, ChevronUp, Info } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 
 import { Theme } from '@excalidraw/excalidraw/types/element/types';
 
@@ -129,8 +130,8 @@ const Excalidraw = ({ architectureData }: ExcalidrawProps) => {
                     </button>
                     {isDescriptionExpanded && (
                         <div className="px-4 pb-4 pt-2 border-t border-gray-100">
-                            <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
-                                {decisionRationale}
+                            <div className="text-sm text-gray-700 leading-relaxed prose prose-sm max-w-none">
+                                <ReactMarkdown>{decisionRationale}</ReactMarkdown>
                             </div>
                         </div>
                     )}
