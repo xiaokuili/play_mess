@@ -43,26 +43,26 @@ interface ExcalidrawProps {
  */
 const Excalidraw = ({ architectureData }: ExcalidrawProps) => {
     const { theme } = useColorScheme();
-    /** Excalidraw 组件的初始数据 */
-    const [initialData, setInitialData] = useState<any>(null);
+    /** Excalidraw 组件的渲染数据，从 ArchitectureData.output 转换而来 */
+    const [excalidrawData, setExcalidrawData] = useState<any>(null);
     /** 解决方案描述面板是否展开 */
     const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(true);
     /** 当前数据的唯一标识，用于确保数据更新时重新渲染 */
     const [dataKey, setDataKey] = useState<string>('');
 
     /**
-     * 当 architectureData 变化时，更新 initialData 和 dataKey
+     * 当 architectureData 变化时，更新 excalidrawData 和 dataKey
      * 
      * 数据来源：ArchitectureData.output（ExcalidrawData）
      */
     useEffect(() => {
         if (!architectureData) {
-            setInitialData(null);
+            setExcalidrawData(null);
             setDataKey('');
             return;
         }
 
-        // 从 ArchitectureData 获取 Excalidraw 初始数据
+        // 从 ArchitectureData 获取 Excalidraw 渲染数据
         // 这个函数会从 architectureData.output 获取数据，如果没有则自动生成
         const data = getExcalidrawInitialDataFromArchitecture(architectureData);
         
@@ -70,7 +70,7 @@ const Excalidraw = ({ architectureData }: ExcalidrawProps) => {
         const elementsCount = data?.elements?.length || 0;
         const key = `${architectureData.round_id}_${architectureData.lifecycle?.updatedAt || architectureData.lifecycle?.createdAt || Date.now()}_${elementsCount}`;
         
-        setInitialData(data);
+        setExcalidrawData(data);
         setDataKey(key);
         
         // 切换轮次时重置描述面板展开状态
@@ -93,7 +93,7 @@ const Excalidraw = ({ architectureData }: ExcalidrawProps) => {
     }
 
     // 如果数据还没准备好，显示加载状态
-    if (!initialData) {
+    if (!excalidrawData) {
         return (
             <div className="relative h-full overflow-hidden flex items-center justify-center">
                 <div className="text-gray-500">加载中...</div>
@@ -102,9 +102,9 @@ const Excalidraw = ({ architectureData }: ExcalidrawProps) => {
     }
 
     // 渲染 Excalidraw 组件
-    // initialData 来自 ArchitectureData.output
+    // excalidrawData 来自 ArchitectureData.output
     // 使用 key 强制在 architectureData 变化时重新渲染组件
-    // 这样当切换到不同轮次时，Excalidraw 会使用新的 initialData
+    // 这样当切换到不同轮次时，Excalidraw 会使用新的 excalidrawData
     const decisionRationale = architectureData.decision_rationale;
     
     return (
@@ -140,10 +140,10 @@ const Excalidraw = ({ architectureData }: ExcalidrawProps) => {
             
             {/* Excalidraw 画布 */}
             <div className="flex-1 relative overflow-hidden">
-                {initialData && (
+                {excalidrawData && (
                     <ExcalidrawPrimitive
                         key={dataKey || architectureData.round_id}
-                        initialData={initialData}
+                        initialData={excalidrawData}
                         theme={theme as Theme}
                     />
                 )}
