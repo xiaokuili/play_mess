@@ -317,39 +317,50 @@ export default function ChatPanel({
           // 将当前用户操作的 issue 标题添加到已解决历史
           newSet.add(selectedIssueTitle);
           
-          // 在同一个更新中处理 issues，使用最新的历史记录
+          // 处理 issues：先收集所有新 issue，再合并，最后基于历史判断状态
           setIssues(prevIssues => {
-            // 标记当前 issue 为 done（基于用户操作）
-            const updated = prevIssues.map(i => 
-              i.id === activeIssueId ? { ...i, status: 'done' as const } : i
-            );
-            
-            // 处理新发现的 issue
+            // 1. 先从 new_backlog 收集所有的 issue 到 newIssues
             const newIssues: Issue[] = newBacklog.map((title, index) => {
               // 检查是否已存在相同标题的 issue（在当前的 issues 列表中）
-              const existing = updated.find(i => i.title === title);
+              const existing = prevIssues.find(i => i.title === title);
               if (existing) {
                 // 如果已存在，保留原有issue（包括done状态的）
                 return existing;
               }
               
-              // 新issue，根据是否已在已解决历史中设置状态
-              const isSolved = newSet.has(title);
+              // 新issue，先创建为 open 状态，后续会根据历史判断
               return {
                 id: Date.now() + index,
                 title,
-                status: isSolved ? 'done' as const : 'open' as const,
+                status: 'open' as const,
                 dependencies: []
               };
             });
             
-            // 合并并去重（基于 id，保留所有issue）
+            // 2. 合并现在的和之前的 issues
+            // 先标记当前 issue 为 done（基于用户操作）
+            const updated = prevIssues.map(i => 
+              i.id === activeIssueId ? { ...i, status: 'done' as const } : i
+            );
+            
+            // 合并：将新 issues 添加到现有列表
             const merged = [...updated, ...newIssues];
+            
+            // 去重（基于 id，保留所有issue）
             const unique = merged.filter((issue, index, self) => 
               index === self.findIndex(i => i.id === issue.id)
             );
             
-            return unique;
+            // 3. 基于 newSet（已解决历史）判断是否之前完成
+            const finalIssues = unique.map(issue => {
+              // 如果已经在已解决历史中，标记为 done
+              if (newSet.has(issue.title)) {
+                return { ...issue, status: 'done' as const };
+              }
+              return issue;
+            });
+            
+            return finalIssues;
           });
           
           return newSet;
