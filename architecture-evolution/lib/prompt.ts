@@ -57,7 +57,7 @@ Current_Architecture 结构如下
 {
   "round_id": "Integer",       // 当前轮次，e.g., 1
   "round_title": "String",     // 本轮标题，用于时间轴显示，e.g., "引入缓存层"
-  "decision_rationale": "String", // 本轮决策理由，e.g., "为了缓解数据库读压力..."
+  "decision_rationale": "String", // 本轮决策理由，e.g., "为了缓解数据库读压力...， markdown格式"
   "architecture": {
     // 节点列表：用于生成图中的方块/圆/图标
     "nodes": [

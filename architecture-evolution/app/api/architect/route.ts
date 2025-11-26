@@ -66,16 +66,17 @@ ${instructionText}
     // 调用阿里云通义千问 LLM API
     // Qwen API 使用兼容 OpenAI 的接口格式
     const isMock = false;
-    const apiKey = process.env.QWEN_LLM_API_KEY || 'sk-919c7bdd1b59457fa93d705c950c53d3';
-    const baseUrl = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+    const apiKey = process.env.YUNWU_API_KEY ;
+    const baseUrl = 'https://yunwu.ai/v1';
     const apiUrl = `${baseUrl}/chat/completions`;
     
-    if (isMock) {
+    if (isMock || apiKey === undefined) {
       // 如果没有配置 API Key，返回模拟数据用于测试
       const mockRounds = generateMockRounds(userInput, maxRounds, issueBacklog, currentArchitecture);
       const finalBacklog = mockRounds.length > 0 
         ? (mockRounds[mockRounds.length - 1].evolution_tracking?.new_backlog || [])
         : [];
+      console.log('mock rounds');
       return NextResponse.json({
         rounds: mockRounds,
         final_backlog: finalBacklog
@@ -90,7 +91,7 @@ ${instructionText}
         'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: process.env.LLM_MODEL || 'qwen-plus-latest',
+        model: process.env.LLM_MODEL,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
