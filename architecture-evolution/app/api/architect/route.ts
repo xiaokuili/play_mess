@@ -27,12 +27,12 @@ export async function POST(request: NextRequest) {
     const isInitial = !currentArchitecture;
     const nextRoundId = isInitial ? 1 : ((currentArchitecture?.round_id || 0) + 1);
     const instructionText = isInitial 
-      ? `请生成第一轮的架构演进方案。需要输出：
-1. Current_Architecture (符合上述 JSON 格式)
-2. Issue_Backlog (下一轮要解决的问题，可以列出所有潜在问题)`
-      : `请基于当前架构和要解决的问题，生成下一轮的架构演进方案。需要输出：
-1. Current_Architecture (符合上述 JSON 格式)
-2. Issue_Backlog (解决当前问题后，新发现的问题)`;
+      ? `请生成第一轮的架构演进方案。**只输出当前这一轮**，需要输出：
+1. Current_Architecture (符合上述 JSON 格式，round_id 为 ${nextRoundId})
+2. Issue_Backlog (审计后发现的新问题，用于下一轮输入)`
+      : `请基于当前架构和要解决的问题，生成下一轮的架构演进方案。**只输出当前这一轮**，需要输出：
+1. Current_Architecture (符合上述 JSON 格式，round_id 为 ${nextRoundId})
+2. Issue_Backlog (解决当前问题后，审计发现的新问题，用于下一轮输入)`;
     
     const userPrompt = `
 原始需求: ${userInput}
@@ -45,7 +45,7 @@ ${JSON.stringify(issueBacklog || ["实现核心业务功能"], null, 2)}
 
 ${instructionText}
 
-请以 JSON 格式返回，格式如下：
+请以 JSON 格式返回，**只返回当前这一轮**，格式如下：
 {
   "rounds": [
     {
@@ -58,8 +58,8 @@ ${instructionText}
         "new_backlog": [...] // 审计后发现的新问题 (输入给下一轮)
       }
     }
-  ], // 架构演进轮次数组（不包含 lifecycle 和 output）
-  "final_backlog": [...] // 最终问题清单，基于输入的final_backlog和每一轮的evolution_tracking.new_backlog，去重后返回
+  ], // 架构演进轮次数组，只包含当前这一轮（不包含 lifecycle 和 output）
+  "final_backlog": [...] // 本轮审计后的问题清单，即 evolution_tracking.new_backlog
 }
 `;
 
